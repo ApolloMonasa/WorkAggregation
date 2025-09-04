@@ -2,57 +2,170 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>主页</title>
-    <link rel="stylesheet" type="text/css" href="../static/css/c1.css"/>
-    <link rel="stylesheet" type="text/css" href="../static/css/mdui.min.css"/>
-    <script src="../static/webjs/mdui.min.js"></script>
+    <title>招聘数据分析与可视化平台 - 主页</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
 
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            color: #555;
+        }
+
+        .card-container {
+            display: flex;
+            gap: 30px; /* 卡片之间的间距 */
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .card {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            width: 280px;
+            padding: 30px;
+            text-align: center;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .card h2 {
+            margin-top: 0;
+            color: #3498db;
+        }
+
+        .card p {
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .card a {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 25px;
+            background-color: #3498db;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+
+        .card a:hover {
+            background-color: #2980b9;
+        }
+        
+        /* 加载动画样式 */
+        #loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.8);
+            display: none; /* 默认隐藏 */
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            flex-direction: column;
+        }
+        .spinner {
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #3498db;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+        }
+        #loading-text {
+            margin-top: 20px;
+            font-size: 1.2em;
+            color: #333;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+    </style>
 </head>
-<body class="mdui-theme-primary-light-blue mdui-theme-accent-blue" style="zoom: 0.95 !important;text-align: center;">
+<body>
 
-<div class="loader"></div>
+    <!-- 加载动画遮罩层 -->
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <p id="loading-text">正在全力分析数据，请稍候...</p>
+    </div>
 
-<div class="container ">
+    <div class="header">
+        <h1>招聘数据分析与可视化平台</h1>
+        <p>洞察市场趋势，把握职业未来</p>
+    </div>
 
-    <a href="/爬虫">
-        <div class="box c1  mdui-ripple mdui-hoverable" mdui-tooltip="{content: '网络爬虫'}">
-            <img src="./static/icon/1.png">
+    <div class="card-container">
+        <div class="card">
+            <h2>第一步：配置爬虫</h2>
+            <p>选择您感兴趣的城市和职位，启动数据采集任务。</p>
+            <a href="{{ url_for('ready_spider') }}">配置任务</a>
         </div>
-    </a>
 
-
-{#    <a href="/分析" onclick="document.getElementsByClassName('loader')[0].style.display='block'">#}
-{#        <div class="box c2 mdui-ripple mdui-hoverable" mdui-tooltip="{content: '导入分析'}">#}
-{#            <img src="./static/icon/2.png">#}
-{#        </div>#}
-{#    </a>#}
-
-    <a href="/展示">
-        <div class="box c3 mdui-ripple mdui-hoverable" mdui-tooltip="{content: '结果展示'}">
-            <img src="./static/icon/3.png">
+        <div class="card">
+            <h2>第二步：开始分析</h2>
+            <p>对已采集的数据进行清洗、处理和深度统计分析。</p>
+            <a href="{{ url_for('analyse') }}" id="analyze-button">开始分析</a>
         </div>
-    </a>
 
-    <a href="/互动">
-        <div class="box c4 mdui-ripple mdui-hoverable" mdui-tooltip="{content: '互动交互'}">
-            <img src="./static/icon/4.png">
+        <div class="card">
+            <h2>第三步：查看报告</h2>
+            <p>浏览交互式数据可视化图表，获取最终的分析洞察。</p>
+            <a href="{{ url_for('showresult') }}">查看可视化报告</a>
         </div>
-    </a>
-
-
-</div>
-
-
-
-
-<a href="/">
-    <button class="mdui-fab mdui-ripple mdui-fab-fixed mdui-color-light-blue-300">
-        <img src="../static/icon/home.png">
-    </button>
-</a>
+    </div>
+    
+    <!-- 交互 和 关于我们 的链接可以放在页脚 -->
+    <footer style="margin-top: 50px; color: #888;">
+        <a href="{{ url_for('interaction_page') }}" style="color: #555; text-decoration: none; margin: 0 15px;">互动模块</a> |
+        <a href="{{ url_for('us') }}" style="color: #555; text-decoration: none; margin: 0 15px;">关于我们</a>
+    </footer>
 
 <script>
-    document.getElementsByClassName("loader")[0].style.display = "none";
+    // 为“开始分析”按钮添加点击事件监听
+    document.getElementById('analyze-button').addEventListener('click', function(event) {
+        // 显示加载动画遮罩层
+        document.getElementById('loading-overlay').style.display = 'flex';
+        document.getElementById('loading-text').innerText = '正在全力分析数据，请稍候... (此过程可能需要1-3分钟)';
+
+        // 注意：我们不阻止默认的跳转行为 (event.preventDefault())
+        // 浏览器将正常跳转到 /分析 路由，并在后台开始执行任务。
+        // 用户看到的将是这个加载动画，直到分析完成页面刷新。
+    });
 </script>
+
 </body>
 </html>

@@ -2,133 +2,127 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>网络爬虫</title>
-    <link rel="stylesheet" type="text/css" href="../static/css/c1.css"/>
-    <link rel="stylesheet" type="text/css" href="../static/css/mdui.min.css"/>
-    <script src="../static/webjs/mdui.min.js"></script>
-
-
+    <title>爬虫任务配置</title>
+    <!-- ... (jQuery 和 Select2 的引入保持不变) ... -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <link href="https://cdn.bootcdn.net/ajax/libs/select2/4.0.13/css/select2.min.css" rel="stylesheet">
+    <script src="https://cdn.bootcdn.net/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/select2/4.0.13/js/i18n/zh-CN.js"></script>
+    <style>
+        /* ... (之前的CSS样式保持不变，这里省略) ... */
+        .timer-settings {
+            border-left: 3px solid #007bff;
+            padding-left: 20px;
+            margin-top: 20px;
+            display: none; /* 默认隐藏 */
+        }
+        .time-input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .time-input-group input {
+            width: 80px;
+        }
+        /* (为保持简洁，其他CSS未列出，请保留原样) */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; } .container { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 80%; max-width: 700px; } h1 { text-align: center; color: #333; margin-bottom: 30px; } .form-group { margin-bottom: 25px; } .form-group label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; } .select2-container--default .select2-selection--multiple { border: 1px solid #ccc; border-radius: 5px; padding: 5px; min-height: 40px; } .select2-container { width: 100% !important; } input[type="text"], input[type="number"] { width: calc(100% - 22px); padding: 10px; border: 1px solid #ccc; border-radius: 5px; } .button { display: block; width: 100%; padding: 15px; background-color: #007bff; color: white; border: none; border-radius: 5px; font-size: 16px; cursor: pointer; transition: background-color 0.3s; } .button:hover { background-color: #0056b3; } .switch { position: relative; display: inline-block; width: 60px; height: 34px; } .switch input { display:none; } .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; } .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; } input:checked + .slider { background-color: #2196F3; } input:checked + .slider:before { transform: translateX(26px); }
+    </style>
 </head>
+<body>
 
+<div class="container">
+    <h1>配置爬虫任务</h1>
+    <form id="spider-form" action="/爬虫完成" method="post">
+        
+        <!-- ... (城市、职位、上限、并发开关的部分保持不变) ... -->
+        <div class="form-group"><label for="city-select">选择城市 (可搜索, 可多选)</label><select name="city" id="city-select" multiple="multiple"></select></div>
+        <div class="form-group"><label for="job-input">输入职位关键词 (多个请用英文逗号,隔开)</label><input type="text" id="job-input-display" value="" placeholder="例如: Java,Python,产品经理"></div>
+        <div class="form-group"><label for="limit-input">每个任务的爬取上限</label><input type="number" name="limit" id="limit-input" value="1000" placeholder="默认无上限"></div>
+        <div class="form-group" style="display: flex; align-items: center;"><label style="margin: 0 10px 0 0;">开启并发 (多进程)</label><label class="switch"><input type="checkbox" name="multithread" checked><span class="slider"></span></label></div>
+        
 
-<body class="mdui-theme-primary-light-blue mdui-theme-accent-blue">
-
-
-<div class="loader"> <h2 style="transform: rotate(0deg); !important">等待数分钟后将自动下载爬取的数据</h2></div>
-
-<div class="container2 mdui-card">
-    <form action="/爬虫完成" method="post">
-        <table>
-            <td>
-                <div class="mdui-list">
-
-                    <label class="mdui-list-item ">
-                        <div class="mdui-list-item-content">爬取目标</div>
-                    </label>
-
-                    <label class="mdui-list-item mdui-ripple">
-                        <div class="mdui-checkbox">
-                            <input type="checkbox" name="type" value="51" checked="" >
-                            <i class="mdui-checkbox-icon"></i>
-                        </div>
-                        <div class="mdui-list-item-content">前程无忧网</div>
-                    </label>
-
-                    <label class="mdui-list-item mdui-ripple">
-                        <div class="mdui-checkbox">
-                            <input type="checkbox" name="type" value="qilu"  disabled="">
-                            <i class="mdui-checkbox-icon"></i>
-                        </div>
-                        <div class="mdui-list-item-content">齐鲁人才网（暂不可用）</div>
-                    </label>
-
-                    <label class="mdui-list-item mdui-ripple">
-                        <div class="mdui-checkbox">
-                            <input type="checkbox" name="type" value="baidu" checked="" />
-                            <i class="mdui-checkbox-icon"></i>
-                        </div>
-                        <div class="mdui-list-item-content" mdui-tooltip="{content: '在百度百聘平台抓取'}">
-                            猎聘网、斗米、BOSS直聘、拉勾网、<br>智联卓聘、脉脉、摩尔精英等
-                        </div>
-                    </label>
-                </div>
-            </td>
-
-            <td>
-                <p>&nbsp;</p>
-            </td>
-
-            <td>
-                <div class="mdui-list">
-                    <li class="mdui-list-item mdui-ripple">
-                        <div class="mdui-list-item-content"
-                             mdui-tooltip="{content: '启动多线程+ 将在已经启用多线程的基础上加大线程数，对反爬较少的网站全速爬取，大幅度提升爬虫速度，但对机器性能要求较高。'}">
-                            多线程➕
-                        </div>
-                        <label class="mdui-switch">
-                            <input type="checkbox" name="threads" value="1" checked/>
-                            <i class="mdui-switch-icon"></i>
-                        </label>
-                    </li>
-                    <div class="mdui-textfield mdui-textfield-floating-label" >
-                        <label class="mdui-textfield-label">必填 每个关键字和城市的爬取量</label>
-                        <input class="mdui-textfield-input" name="number" value="100" >
-                    </div>
-                    <div class="mdui-textfield mdui-textfield-floating-label" >
-                        <label class="mdui-textfield-label">必填 爬取总数</label>
-                        <input class="mdui-textfield-input" name="total" value="500" >
-                    </div>
-
-                </div>
-            </td>
-
-            <td><p></p></td>
-
-            <td>
-
-                <li class="mdui-list-item mdui-ripple">
-                    <div class="mdui-list-item-content" mdui-tooltip="{content: '每天在指定时间爬取'}">
-                        定时爬取
-                    </div>
-                    <label class="mdui-switch">
-                        <input type="checkbox" name="time" value="1" disabled>
-                        <i class="mdui-switch-icon"></i>
-                    </label>
-                </li>
-
-                <div class="mdui-textfield mdui-textfield-floating-label" mdui-tooltip="{content: '24小时制'}">
-                    <label class="mdui-textfield-label">小时</label>
-                    <input class="mdui-textfield-input" name="hour" type="number" disabled>
-                </div>
-                <div class="mdui-textfield mdui-textfield-floating-label">
-                    <label class="mdui-textfield-label">分钟</label>
-                    <input class="mdui-textfield-input" name="minute" type="number" disabled>
-                </div>
-            </td>
-            <td>
-                <h2>&nbsp;服务器性能有限，<br>可能需要等待3-5分钟<br>抓取的数据将自动下载</h2>
-            </td>
-
-        </table>
-        <div class="mdui-dialog-actions">
-            <button type="submit" class="mdui-btn mdui-ripple"
-                   >开始爬取
-            </button>
+        <!-- 【新增】定时爬取开关 -->
+        <div class="form-group" style="display: flex; align-items: center;">
+            <label style="margin: 0 10px 0 0;">开启定时爬取</label>
+            <label class="switch">
+                <input type="checkbox" id="timer-toggle" name="enable_timer">
+                <span class="slider"></span>
+            </label>
         </div>
+        
+        <!-- 【新增】定时设置区域 (默认隐藏) -->
+        <div id="timer-settings" class="timer-settings">
+            <div class="form-group">
+                <label>每日循环时间</label>
+                <div class="time-input-group">
+                    从 <input type="number" name="begin_hour" min="0" max="23" value="0"> 时
+                    <input type="number" name="begin_minute" min="0" max="59" value="0"> 分
+                    &nbsp;到&nbsp;
+                    <input type="number" name="end_hour" min="0" max="23" value="23"> 时
+                    <input type="number" name="end_minute" min="0" max="59" value="59"> 分
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="interval-input">每次爬取任务间隔 (分钟)</label>
+                <input type="number" name="interval" id="interval-input" value="60" placeholder="例如: 60">
+            </div>
+        </div>
+        
+        <button type="submit" class="button">开始爬取</button>
     </form>
-
-
-    <a href="/">
-        <button class="mdui-fab mdui-ripple mdui-fab-fixed mdui-color-theme-accent">
-            <img src="../static/icon/home.png">
-        </button>
-    </a>
 </div>
 
 <script>
-    window.onload = function () {
-        document.getElementsByClassName("loader")[0].style.display = "none";
-    }
+    $(document).ready(function() {
+        const citySelect = $('#city-select'); const cityList = [ "北京", "上海", "广州", "深圳", "武汉", "西安", "杭州", "南京", "成都", "重庆", "东莞", "大连", "沈阳", "苏州", "昆明", "长沙", "合肥", "宁波", "郑州", "天津", "青岛", "济南", "哈尔滨", "长春", "福州", "泰州", "三门峡", "三明", "三沙", "三亚", "山南", "汕头", "汕尾", "商洛", "商丘", "上饶", "韶关", "邵阳", "绍兴", "神农架", "十堰", "石河子", "石家庄", "石嘴山", "双鸭山", "朔州", "四平", "松原", "宿迁", "宿州", "随州", "绥化", "遂宁", "塔城", "台州", "泰安", "泰兴", "太仓", "太原", "唐山", "天门", "天水", "铁岭", "通化", "通辽", "铜川", "铜陵", "铜仁", "图木舒克", "吐鲁番", "屯昌", "雅安", "烟台", "盐城", "延安", "延边", "延吉", "燕郊开发区", "杨凌", "扬州", "洋浦经济开发区", "阳江", "阳泉", "伊春", "伊犁", "宜宾", "宜昌", "宜春", "义乌", "益阳", "银川", "鹰潭", "营口", "永州", "榆林", "玉林", "玉树", "玉溪", "岳阳", "云浮", "运城", "枣庄", "湛江", "漳州", "张家港", "张家界", "张家口", "张掖", "昭通", "肇庆", "镇江", "中山", "中卫", "舟山", "周口", "珠海", "株洲", "驻马店", "资阳", "淄博", "自贡", "遵义", "万宁", "威海", "潍坊", "渭南", "温州", "文昌", "文山", "乌海", "乌兰察布", "乌鲁木齐", "无锡", "芜湖", "梧州", "吴忠", "武威", "五家渠", "五指山", "西昌", "西宁", "西双版纳", "锡林郭勒盟", "厦门", "仙桃", "咸宁", "咸阳", "襄阳", "湘潭", "湘西", "孝感", "新乡", "新余", "忻州", "信阳", "兴安盟", "邢台", "雄安新区", "徐州", "许昌", "宣城", "攀枝花", "盘锦", "萍乡", "平顶山", "平凉", "莆田", "普洱", "濮阳", "七台河", "齐齐哈尔", "黔东南", "黔南", "黔西南", "潜江", "钦州", "秦皇岛", "清远", "庆阳", "琼海", "琼中", "曲靖", "泉州", "衢州", "日喀则", "日照", "拉萨", "莱芜", "来宾", "兰州", "廊坊", "乐山", "丽江", "丽水", "连云港", "凉山", "聊城", "辽阳", "辽源", "林芝", "临沧", "临汾", "临高", "临夏", "临沂", "陵水", "柳州", "六安", "六盘水", "龙岩", "陇南", "娄底", "吕梁", "洛阳", "泸州", "漯河", "马鞍山", "茂名", "梅州", "眉山", "绵阳", "牡丹江", "那曲", "南昌", "南充", "南宁", "南平", "南通", "南阳", "内江", "宁德", "怒江", "鸡西", "吉安", "吉林", "济宁", "济源", "嘉兴", "嘉峪关", "佳木斯", "江门", "焦作", "揭阳", "金昌", "金华", "锦州", "晋城", "晋中", "荆门", "荆州", "景德镇", "靖江", "九江", "酒泉", "喀什地区", "开封", "开平", "克拉玛依", "克孜勒苏柯尔克孜", "昆山", "哈密", "海北", "海东", "海口", "海南", "海宁", "海西", "邯郸", "汉中", "菏泽", "和田", "河池", "河源", "鹤壁", "鹤岗", "贺州", "黑河", "衡水", "衡阳", "红河州", "呼和浩特", "呼伦贝尔", "葫芦岛", "湖州", "怀化", "淮安", "淮北", "淮南", "黄冈", "黄南", "黄山", "黄石", "惠州", "达州", "大理", "大庆", "大同", "大兴安岭", "丹东", "丹阳", "德宏", "德阳", "德州", "邓州", "迪庆", "定安", "定西", "东方", "东营", "儋州", "鄂尔多斯", "鄂州", "恩施", "防城港", "佛山", "抚顺", "抚州", "阜新", "阜阳", "甘南", "甘孜", "赣州", "固原", "广安", "广元", "桂林", "贵港", "贵阳", "果洛", "阿坝", "阿克苏", "阿拉尔", "阿拉善盟", "阿勒泰", "阿里", "鞍山", "安康", "安庆", "安顺", "安阳", "巴彦淖尔", "巴音郭楞", "巴中", "白城", "白沙", "白山", "白银", "百色", "蚌埠", "包头", "保定", "保山", "保亭", "宝鸡", "北海", "本溪", "毕节", "滨州", "博尔塔拉", "亳州", "沧州", "昌都", "昌吉", "昌江", "常德", "常熟", "常州", "长治", "朝阳", "潮州", "郴州", "澄迈", "承德", "池州", "赤峰", "崇左", "滁州", "楚雄" ];
+        cityList.forEach(function(city) { citySelect.append(new Option(city, city, false, false)); });
+        citySelect.select2({ placeholder: '请选择或搜索城市', allowClear: true, language: "zh-CN" });
+        $('#spider-form').on('submit', function() {
+            const jobInput = $('#job-input-display'); const jobs = jobInput.val().split(',').map(j => j.trim()).filter(j => j);
+            jobs.forEach(function(job) { $('<input>').attr({ type: 'hidden', name: 'job', value: job }).appendTo('#spider-form'); });
+        });
+
+        // 【新增】定时开关的交互逻辑
+        $('#timer-toggle').on('change', function() {
+            if ($(this).is(':checked')) {
+                $('#timer-settings').slideDown(); // 如果选中，则展开设置区域
+            } else {
+                $('#timer-settings').slideUp(); // 如果取消选中，则收起
+            }
+        });
+    });
 </script>
+
 </body>
+<!-- 通用导航栏 -->
+<div class="navbar">
+    <a href="/" class="nav-button">返回主页</a>
+</div>
+<style>
+    .navbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        background-color: #333;
+        padding: 10px 20px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        z-index: 1000;
+        box-sizing: border-box; /* 确保 padding 不会撑大宽度 */
+    }
+    .nav-button {
+        color: white;
+        text-decoration: none;
+        padding: 8px 15px;
+        border-radius: 5px;
+        transition: background-color 0.3s;
+    }
+    .nav-button:hover {
+        background-color: #555;
+    }
+    /* 为页面主体增加上边距，防止被导航栏遮挡 */
+    body {
+        padding-top: 60px; 
+    }
+</style>
 </html>

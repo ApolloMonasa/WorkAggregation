@@ -1,0 +1,75 @@
+<!-- templates/analysis_feedback.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>分析任务状态</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f0f2f5; margin: 0; }
+        .card { background: white; padding: 40px 50px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.08); text-align: center; max-width: 500px; }
+        h1 { color: #1f2d3d; font-size: 1.8em; margin-bottom: 15px; }
+        p { color: #5a6573; font-size: 1.1em; line-height: 1.6; }
+        .actions { margin-top: 30px; }
+        .button {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 12px 25px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+            transition: background-color 0.3s, transform 0.2s;
+            margin: 0 10px;
+        }
+        .button:hover {
+            background-color: #2980b9;
+            transform: translateY(-2px);
+        }
+        .button-secondary {
+            background-color: #ecf0f1;
+            color: #34495e;
+        }
+        .button-secondary:hover {
+            background-color: #dadedf;
+        }
+        /* 加载动画 (可选) */
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 5px solid #3498db;
+            width: 40px;
+            height: 40px;
+            -webkit-animation: spin 1s linear infinite; /* Safari */
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @-webkit-keyframes spin { 0% { -webkit-transform: rotate(0deg); } 100% { -webkit-transform: rotate(360deg); } }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <!-- 通用导航栏 -->
+    <div class="navbar">
+        <a href="/" class="nav-button">返回主页</a>
+    </div>
+    <style>
+        /* 导航栏样式 (保持不变) */
+        .navbar { position: fixed; top: 0; left: 0; width: 100%; background-color: #333; padding: 10px 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 1000; box-sizing: border-box; }
+        .nav-button { color: white; text-decoration: none; padding: 8px 15px; border-radius: 5px; transition: background-color 0.3s; }
+        .nav-button:hover { background-color: #555; }
+        body { padding-top: 60px; }
+    </style>
+
+    <div class="card">
+        <h1>{{ title }}</h1>
+        <div class="loader"></div> <!-- 加载动画 -->
+        <p>{{ message }}</p>
+        <div class="actions">
+            <!-- 按钮1: 查看结果，直接链接到 /展示 页面 -->
+            <a href="{{ url_for('showresult') }}" class="button">查看分析结果</a> 
+            <!-- 按钮2: 返回主页 -->
+            <a href="{{ url_for('index') }}" class="button button-secondary">返回主页</a>
+        </div>
+    </div>
+</body>
+</html>

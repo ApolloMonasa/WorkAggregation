@@ -1,3 +1,4 @@
 # Project exclude paths
 /web/data/
 /static/webjs/
+**/*.js

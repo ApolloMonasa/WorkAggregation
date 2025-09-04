@@ -2,277 +2,203 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>机器人小明</title>
-    <link rel="stylesheet" type="text/css" href="../static/css/c1.css"/>
-    <link rel="stylesheet" type="text/css" href="../static/css/mdui.min.css"/>
-    <script src="../static/webjs/mdui.min.js"></script>
+    <title>交互式职位浏览器</title>
+    <script src="{{ url_for('static', filename='webjs/jquery-3.3.1.min.js') }}"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f0f2f5; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h1, h2 { text-align: center; color: #2c3e50; }
+        h2 { border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 20px; font-size: 1.2em; text-align: left; }
+        .section { background-color: #f8f9fa; padding: 20px; border-radius: 6px; margin-bottom: 20px; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: center; }
+        .form-group { display: flex; align-items: center; }
+        .form-group label { width: 80px; text-align: right; margin-right: 10px; font-weight: bold; }
+        .form-group input, .form-group select { flex-grow: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        .action-button { width: 100%; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 5px; font-size: 1.1em; cursor: pointer; transition: background-color 0.3s; margin-top: 10px; }
+        .action-button:hover { background-color: #0056b3; }
+        .results-section { display: none; margin-top: 20px; }
+        .result-card { background-color: #fff; padding: 20px; border: 1px solid #e9ecef; border-radius: 6px; margin-bottom: 20px; }
+        .result-card h3 { margin-top: 0; }
+        .result-card p, .result-card li { line-height: 1.8; }
+        .result-card ul { list-style: none; padding-left: 0; }
+        .result-card li span { font-weight: bold; color: #e67e22; }
+        #job-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        #job-table th, #job-table td { border: 1px solid #dee2e6; padding: 8px; text-align: left; }
+        #job-table th { background-color: #f8f9fa; }
+        #job-table tr:nth-child(even) { background-color: #f2f2f2; }
+        .spinner-container { display: flex; align-items: center; justify-content: center; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin-right: 10px; display: none; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
 </head>
+<body>
+    <div class="navbar"> <a href="/" class="nav-button">返回主页</a> </div>
+    <style>.navbar{position:fixed;top:0;left:0;width:100%;background-color:#333;padding:10px 20px;z-index:1000;}.nav-button{color:white;text-decoration:none;padding:8px 15px;}body{padding-top:60px;}</style>
 
+    <div class="container">
+        <h1>交互式职位浏览器</h1>
 
-<style>
-    .card {
-        width: 50%;
-        height: 750px;
-        position: absolute;
-        top: 0;
-        margin: 30px 0 0 30px;
-    }
-
-    .book img {
-        width: 300px;
-        height: 300px;
-        margin-left:50px ;
-        margin-top: 20px;
-    }
-    .card li{
-        height: 50px;}
-
-</style>
-
-<div class="mdui-theme-primary-light-blue mdui-theme-accent-blue">
-
-
-    {#    <div class="loader"></div>#}
-    <div id="robot">
-        <img src="../static/icon/robot.png">
-    </div>
-
-    {#    <div id="robot1" class="container3 mdui-card">#}
-    {#        <div class="text">#}
-    {#            您好，我是机器人小明，感谢您使用本系统。<br>#}
-    {#            假设您是一位在校大学生，正在学习计算机相关的专业，并且热爱计算机。<br>#}
-    {#        </div>#}
-    {#        <button class="mdui-btn mdui-btn-raised mdui-ripple mdui-color-theme-accent mdui-btn-block"#}
-    {#                onclick="document.getElementById('robot1').style.display='none',document.getElementById('robot2').style.display='block'     ">#}
-    {#            好的∑(゜ロ゜;)#}
-    {#        </button>#}
-    {#    </div>#}
-    {##}
-    {##}
-    {#    <div id="robot2" class="container3 mdui-card">#}
-    {#        <div class="text">#}
-    {#            您和您周围的同学肯定会有像这样的苦恼<br>#}
-    {#            究竟是应该准备读研深造呢，还是好好学习技术毕业直接就业呢..(｡•ˇ‸ˇ•｡) ..<br>#}
-    {#        </div>#}
-    {#        <button class="mdui-btn mdui-btn-raised mdui-ripple mdui-color-theme-accent mdui-btn-block"#}
-    {#                onclick="document.getElementById('robot2').style.display='none',document.getElementById('robot3').style.display='block'     ">#}
-    {#            没错啊，很痛苦呢#}
-    {#        </button>#}
-    {##}
-    {#    </div>#}
-
-
-    <div id="robot3" class="container3 mdui-card" style="display:block">
-        <div class="text">
-            下面就让小明来帮您解决这个问题<br>
-            告诉我你想在计算机哪个方向努力，我就会通过大数据分析给你提供一些建议<br><br>
-
-            <a class="mdui-chip" onclick="f1()">
-                <span class="mdui-chip-icon mdui-color-blue-200"></span>
-                <span class="mdui-chip-title">软件</span>
-            </a>
-
-            <a class="mdui-chip"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-indigo-200"></span>
-                <span class="mdui-chip-title">前端</span>
-            </a>
-
-            <a class="mdui-chip"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-teal-200"></span>
-                <span class="mdui-chip-title">后端</span>
-            </a>
-
-            <a class="mdui-chip"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-red-200"></span>
-                <span class="mdui-chip-title">图像</span>
-            </a>
-
-            <a class="mdui-chip"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-deep-purple-200"></span>
-                <span class="mdui-chip-title">语音</span>
-            </a>
-
-            <a class="mdui-chip"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-light-green-200"></span>
-                <span class="mdui-chip-title">游戏</span>
-            </a>
-
-            <a class="mdui-chip"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-pink-200"></span>
-                <span class="mdui-chip-title">自然语言处理</span>
-            </a>
-
-
-            <a class="mdui-chip" href="?name=学习"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-amber-200"></span>
-                <span class="mdui-chip-title">机器学习</span>
-            </a>
-
-
-            <a class="mdui-chip" href="?name=数据"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-deep-purple-200"></span>
-                <span class="mdui-chip-title">数据</span>
-            </a>
-
-
-            <a class="mdui-chip" href="?name=测试"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-blue-grey-200"></span>
-                <span class="mdui-chip-title">测试</span>
-            </a>
-
-            <a class="mdui-chip" href="?name=网络安全"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-yellow-200"></span>
-                <span class="mdui-chip-title">网络安全</span>
-            </a>
-
-            <a class="mdui-chip" href="?name=运维"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-cyan-200"></span>
-                <span class="mdui-chip-title">运维</span>
-            </a>
-
-            <a class="mdui-chip" href="?name=UI"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-light-green-200"></span>
-                <span class="mdui-chip-title">UI</span>
-            </a>
-
-            <a class="mdui-chip" href="?name=区块链"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-brown-200"></span>
-                <span class="mdui-chip-title">区块链</span>
-            </a>
-
-            <a class="mdui-chip" href="?name=网络"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-red-200"></span>
-                <span class="mdui-chip-title">网络</span>
-            </a>
-
-            <a class="mdui-chip" href="?name=全栈"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-blue-200"></span>
-                <span class="mdui-chip-title">全栈工程师</span>
-            </a>
-
-            <a class="mdui-chip" href="?name=嵌入式"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-deep-purple-200"></span>
-                <span class="mdui-chip-title">嵌入式工程师</span>
-            </a>
-
-            <a class="mdui-chip" href="?name=物联网"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-orange-200"></span>
-                <span class="mdui-chip-title">物联网工程师</span>
-            </a>
-
-            <a class="mdui-chip" href="?name=架构"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-cyan-200"></span>
-                <span class="mdui-chip-title">架构工程师</span>
-            </a>
-
-            <a class="mdui-chip" href="?name=算法"
-               onclick="document.getElementsByClassName('loader')[0].style.display='block'">
-                <span class="mdui-chip-icon mdui-color-deep-orange-200"></span>
-                <span class="mdui-chip-title">算法工程师</span>
-            </a>
+        <div class="section">
+            <h2>职位筛选条件</h2>
+            <form id="prospects-form">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="education">学历:</label>
+                        <select id="education" name="education">
+                            <option value="不限" selected>不限</option>
+                            <option value="本科">本科</option>
+                            <option value="硕士">硕士</option>
+                            <option value="大专">大专</option>
+                            <option value="博士">博士</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="major">专业:</label>
+                        <input type="text" id="major" name="major" placeholder="如: 计算机">
+                    </div>
+                    <div class="form-group">
+                        <label for="experience">工作年限:</label>
+                        <select id="experience" name="experience">
+                            <option value="不限" selected>不限</option>
+                            <option value="在校生/应届生">应届生</option>
+                            <option value="1年经验">1年经验</option>
+                            <option value="2年经验">2年经验</option>
+                            <option value="3-4年经验">3-4年经验</option>
+                            <option value="5-7年经验">5-7年经验</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="job-title">岗位名称:</label>
+                        <input type="text" id="job-title" name="job-title" placeholder="如: 前端开发">
+                    </div>
+                    <div class="form-group">
+                        <label for="location">求职地:</label>
+                        <input type="text" id="location" name="location" placeholder="如: 杭州">
+                    </div>
+                </div>
+                <button type="submit" class="action-button" id="analyze-btn">
+                    <div class="spinner-container">
+                        <div class="spinner" id="spinner"></div>
+                        <span>分析求职前景</span>
+                    </div>
+                </button>
+            </form>
         </div>
 
+        <div class="results-section" id="results-section">
+            <h2>分析结果</h2>
+            <p id="analysis-conditions"></p>
 
-    </div>
-
-
-    <div id="robot4" class="mdui-card" style="display: none;">
-        <div class="text">
-            通过大数据分析后<br>
-            我们为您准备了学习路线<br>要掌握的技能和推荐书籍
+            <div id="results-content">
+                <div class="result-card">
+                    <h3>💼 岗位薪资水平</h3>
+                    <ul>
+                        <li>平均薪资: <span id="avg-salary"></span> 元</li>
+                        <li>最低薪资: <span id="min-salary"></span> 元</li>
+                        <li>最高薪资: <span id="max-salary"></span> 元</li>
+                        <li>📊 样本数量: <span id="sample-count"></span> 条数据</li>
+                    </ul>
+                </div>
+                <div class="result-card">
+                    <h3>👤 岗位要求画像</h3>
+                    <p id="portrait-text" style="white-space: pre-wrap;"></p>
+                </div>
+                <div class="result-card">
+                    <h3>📋 匹配职位列表 (最多显示100条)</h3>
+                    <div style="overflow-x: auto;">
+                        <table id="job-table">
+                            <thead>
+                                <tr><th>职位名称</th><th>工作地点</th><th>薪资范围</th><th>经验要求</th><th>学历要求</th><th>公司类型</th><th>行业</th></tr>
+                            </thead>
+                            <tbody id="job-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="result-card" id="message-card" style="display: none; text-align: center;">
+                <p id="message-text"></p>
+            </div>
         </div>
     </div>
 
-
-    <div class="mdui-tab " mdui-tab
-         style="right: 120px;position: absolute;top:100px;display: none;
-         font-weight: 600;letter-spacing: 0.2em;height:50px; ">
-        <a href="#example1-tab4" class="mdui-ripple">分析结果</a>
-        <a href="#example1-tab1" class="mdui-ripple">学习路线</a>
-        <a href="#example1-tab2" class="mdui-ripple">技能</a>
-        <a href="#example1-tab3" class="mdui-ripple">推荐书籍</a>
-    </div>
-
-    <div id="example1-tab1" class="mdui-p-a-2">
-        <div class="mdui-card card" id="1" style=""></div>
-
-    </div>
-
-    <div id="example1-tab2" class="mdui-p-a-2">
-        <div class="mdui-card card" id="1" style="font-size: 1.2em;letter-spacing: 1px;padding-top: 45px">
-            <ul>
-                <li>对 HTML / CSS / JavaScript 具有一定的知识；<br></li>
-                <li>有较熟练使用 AngularJS / Vue / jQuery 或者其它类库的经验；<br></li>
-                <li>较熟悉第三方组件（插件）生态环境及具体案例；</li>
-                <li>有较熟练使用 Jade / Swig / Handlebars / Mustache 或者其它模板引擎的经验；<br></li>
-                <li>有较熟练使用 SASS 或者其它 CSS 预处理器的经验；<br></li>
-                <li>有较熟练使用 CoffeeScript 的经验；<br></li>
-                <li>对 CSS / JavaScript 设计模式有很好的认识及应用；<br></li>
-                <li>对常用数据结构和算法熟悉；<br></li>
-                <li>有使用 GruntJS / GulpJS 任务运行器的经验；<br></li>
-                <li>有使用 Yeoman 生成器的经验；</li>
-                <li>有诸如 Bower / Volo / JSPM 等前端静态资源包管理器使用经验；</li>
-                <li>熟悉本地及远程（真机）调试操作；</li>
-                <li>有 Git 的使用经验；<br></li>
-            </ul>
-
-
-        </div>
-
-    </div>
-
-    <div id="example1-tab3" class="mdui-p-a-2">
-        <div class="mdui-card card book" id="1" style="">
-            <a href="https://detail.tmall.com/item.htm?spm=a230r.1.14.41.60d47936PrHKVN&id=588391570410&ns=1&abbucket=2">            <img src="../static/icon/book/1.png"></a>
-            <a href="https://detail.tmall.com/item.htm?spm=a230r.1.14.97.60d47936PrHKVN&id=569403754016&ns=1&abbucket=2"><img src="../static/icon/book/2.png"></a>
-            <a href="https://detail.tmall.com/item.htm?spm=a230r.1.14.239.60d47936PrHKVN&id=570446617914&ns=1&abbucket=2" ><img src="../static/icon/book/4.png"></a>
-            <a href="" ></a><img src="../static/icon/book/3.png">
-            <img src="../static/icon/book/5.png">
-            <img src="../static/icon/book/6.png">
-        </div>
-    </div>
-
-    <div id="example1-tab4" class="mdui-p-a-2">
-        <div id="displayno">
-            <iframe src="../static/html/bing.html" scrolling="no" frameborder="0" width="55%" height="450"
-                    class="p1"></iframe>
-            <iframe src="../static/html/qiu1.html" scrolling="no" frameborder="0" width="30%" height="400"
-                    class="p2"></iframe>
-            <iframe src="../static/html/qiu2.html" scrolling="no" frameborder="0" width="30%" height="400"
-                    class="p2"></iframe>
-            <iframe src="../static/html/qiu3.html" scrolling="no" frameborder="0" width="30%" height="400"
-                    class="p2"></iframe>
-        </div>
-    </div>
-
-</div>
 <script>
-    function f1() {
-        document.getElementById('displayno').style.display = 'block';
-        document.getElementsByClassName('mdui-tab')[0].style.display = 'flex';
-        document.getElementById('robot3').style.display = 'none';
-        document.getElementById('robot4').style.display = 'block';
-    }
-</script>
+$(document).ready(function() {
+    $('#prospects-form').on('submit', function(event) {
+        event.preventDefault();
+        const btn = $('#analyze-btn');
+        const spinner = $('#spinner');
+        
+        const filters = {
+            education: $('#education').val(),
+            major: $('#major').val(),
+            location: $('#location').val(),
+            experience: $('#experience').val(),
+            jobTitle: $('#job-title').val()
+        };
 
+        spinner.show();
+        btn.prop('disabled', true);
+        $('#results-section').slideUp();
+
+        $.ajax({
+            url: '/api/analyze_prospects',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(filters),
+            success: function(response) {
+                if (response.success) {
+                    const data = response.data;
+                    
+                    if (data.message) {
+                        $('#message-text').text(data.message);
+                        $('#results-content').hide();
+                        $('#message-card').show();
+                    } else if (data.jobs && data.jobs.length > 0) {
+                        $('#avg-salary').text(data.salary.avg);
+                        $('#min-salary').text(data.salary.min);
+                        $('#max-salary').text(data.salary.max);
+                        $('#sample-count').text(data.salary.count);
+                        $('#portrait-text').text(data.portrait);
+                        
+                        // 动态生成表格行
+                        const tableBody = $('#job-table-body');
+                        tableBody.empty(); // 清空旧数据
+                        data.jobs.forEach(function(job) {
+                            const row = `<tr>
+                                <td>${job.title || ''}</td>
+                                <td>${job.place || ''}</td>
+                                <td>${job.salary || ''}</td>
+                                <td>${job.experience || ''}</td>
+                                <td>${job.education || ''}</td>
+                                <td>${job.companytype || ''}</td>
+                                <td>${job.industry || ''}</td>
+                            </tr>`;
+                            tableBody.append(row);
+                        });
+
+                        $('#results-content').show();
+                        $('#message-card').hide();
+                    } else {
+                        $('#message-text').text('抱歉，未找到匹配的职位。请尝试放宽筛选条件。');
+                        $('#results-content').hide();
+                        $('#message-card').show();
+                    }
+                    $('#results-section').slideDown();
+                } else {
+                    alert('分析失败: ' + response.message);
+                }
+            },
+            error: function() {
+                alert('请求服务器失败，请检查网络或联系管理员。');
+            },
+            complete: function() {
+                spinner.hide();
+                btn.prop('disabled', false);
+            }
+        });
+    });
+});
+</script>
 
 </body>
 </html>
