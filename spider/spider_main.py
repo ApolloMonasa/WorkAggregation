@@ -1,400 +1,466 @@
-# -*- coding: utf-8 -*-
-import configparser
-import csv
-import json
-import os
-import random
-import threading
+# /spider/spider_main.py
+
 import time
-import traceback
-from multiprocessing import Process, Queue
-from threading import Thread
+import datetime
+import threading
+import queue
+import csv
+import os
+import configparser
+from multiprocessing import Process, Queue, freeze_support
+from selenium import webdriver
 
-import bs4
-import requests
-from lxml import etree
+# 导入自定义工具模块
+# from spider.tool import timer # 注意：此模块在当前代码中未被使用
 
-from .tool import log, timer
+# --- 1. 读取城市代码配置 ---
+
+# 创建配置解析器实例
+config = configparser.ConfigParser()
+# 获取当前文件所在目录
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# 构造配置文件的完整路径
+conf_path = os.path.join(current_dir, 'conf.ini')
+# 读取配置文件
+config.read(conf_path, encoding='utf-8')
 
 
-class SpiderMeta(type):
-    spiders = []
+def get_city_code(city_name: str) -> str:
+    """
+    根据城市名称从 conf.ini 文件中获取对应的城市代码。
 
-    def __new__(cls, name, bases, attrs):
-        cls.spiders.append(type.__new__(cls, name, bases, attrs))
-        return type.__new__(cls, name, bases, attrs)
+    Args:
+        city_name (str): 城市的中文名称。
+
+    Returns:
+        str: 对应的城市代码。如果找不到，则返回全国代码 '000000' 并打印警告。
+    """
+    try:
+        return config.get('citycode', city_name)
+    except (configparser.NoSectionError, configparser.NoOptionError):
+        print(f"警告: 在 conf.ini 中未找到城市 '{city_name}' 的代码，将使用全国代码 '000000'。")
+        return "000000"
 
 
+# --- 2. 配置 Selenium WebDriver 选项 ---
+
+options = webdriver.ChromeOptions()
+# 禁用 'navigator.webdriver' 标志，防止被网站检测为自动化程序
+options.add_argument("--disable-blink-features=AutomationControlled")
+# options.add_argument("--headless")  # 无头模式，后台运行浏览器，可根据需要启用
+options.add_argument("--start-maximized")  # 启动时最大化窗口
+options.add_argument("--no-sandbox")  # 在容器化环境中运行时需要
+options.add_argument("--disable-gpu")  # 禁用GPU加速，某些环境下可避免问题
+options.add_argument("--disable-dev-shm-usage")  # 解决 Docker 或 CI 环境中的资源限制问题
+# 禁用不必要的日志输出
+options.add_experimental_option('excludeSwitches', ['enable-logging'])
+
+
+# ==============================
+#  Spider 基类
+# ==============================
 class BaseSpider(object):
-    headers = {
-        'Accept': 'text/html,application/xhtml+xml,application/xml;'
-                  'q=0.9,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'Connection': 'keep-alive',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                      'AppleWebKit/537.36 (KHTML, like Gecko) '
-                      'Chrome/64.0.3282.119 Safari/537.36',
-        'Upgrade-Insecure-Requests': '1',
-    }
+    """
+    爬虫基类，封装通用属性和方法。
+    """
 
-    request_sleep = 0.7
-    _time_recode = 0
-    number = 0
+    def __init__(self, city, job, city_code, queue, driver):
+        self.city = city
+        self.job = job
+        self.city_code = city_code
+        self.queue = queue
+        self.driver = driver
 
-    def request(self, method='get', url=None, encoding=None, **kwargs):
+    def request_json(self, keyword, page_num=1, jobArea="000000"):
+        """
+        通过执行异步 JavaScript `fetch` 请求来获取招聘数据。
+        这种方式比 Selenium 直接操作页面元素更高效且不易被检测。
 
-        if not kwargs.get('headers'):
-            kwargs['headers'] = self.headers
+        Args:
+            keyword (str): 搜索的职位关键词。
+            page_num (int): 请求的页码。
+            jobArea (str): 城市代码。
 
-        if not kwargs.get('timeout'):
-            kwargs['timeout'] = 5
-
-        rand_multi = random.uniform(0.8, 1.2)
-        interval = time.time() - self._time_recode
-        if interval < self.request_sleep:
-            time.sleep((self.request_sleep - interval) * rand_multi)
-
-        resp = getattr(requests, method)(url, **kwargs)
-        self._time_recode = time.time()
-
-        self.number = self.number + 1
-
-        if encoding:
-            resp.encoding = encoding
-        return resp.text
+        Returns:
+            dict: API返回的JSON数据，或在出错时返回包含'error'键的字典。
+        """
+        script = f"""
+        var done = arguments[0];
+        fetch("https://we.51job.com/api/job/search-pc?api_key=51job&keyword={keyword}&searchType=2&sortType=0&pageNum={page_num}&pageSize=20&jobArea={jobArea}")
+            .then(r => r.json()).then(data => done(data)).catch(err => done({{'error': err.toString()}}));
+        """
+        return self.driver.execute_async_script(script)
 
 
-class Job51Spider(BaseSpider, metaclass=SpiderMeta):
-    request_sleep = 0
+# ==============================
+#  51job 爬虫实现类
+# ==============================
+class Job51Spider(BaseSpider):
+    """
+    针对前程无忧网（51job.com）的爬虫实现。
+    继承自 BaseSpider，并添加了抓取数量限制的逻辑。
+    """
+
+    def __init__(self, city, job, city_code, queue, driver, limit):
+        super().__init__(city, job, city_code, queue, driver)
+        self.limit = limit  # 每个任务的最大抓取数量
+        self.count = 0      # 当前任务已抓取数量
 
     def run(self):
-        conf = configparser.ConfigParser()
-        conf.read('./spider/conf.ini')
-        citycode = conf['citycode'][self.city]
+        """
+        爬虫主执行逻辑。
+        循环翻页，直到没有更多数据或达到数量上限。
+        """
+        # 初始访问页面，主要是为了建立会话和获取cookies
+        self.driver.get(f"https://we.51job.com/pc/search?jobArea={self.city_code}")
+        time.sleep(3)
         page = 1
-        # 获得总页数
-        url = "https://search.51job.com/list/{},000000,0100%252C2400%252C2700%252C2500,00,9,99,{},2," \
-              "{}.html?lang=c&stype=&postchannel=0000&workyear=99&cotype=99&degreefrom=99&jobterm=99&companysize=99" \
-              "&providesalary=99&lonlat=0%2C0&radius=-1&ord_field=0&confirmdate=9&fromType=&dibiaoid=0&address=&line" \
-              "=&specialarea=00&from=&welfare=".format(citycode, self.job, page)
-        a = self.request(url=url, method='get', encoding='GBK')
-
-        js = etree.HTML(a).xpath('/html/body/script[2]/text()')[0]  # 注意解析变成html里的js变量了
-        jsonCode = js.partition('=')[2].strip()
-        json_res = json.loads(jsonCode)
-
-        maxpage = eval(json_res['total_page'])
-
-        # 解析页数
         while True:
-            url = "https://search.51job.com/list/{},000000,0100%252C2400%252C2700%252C2500,00,9,99,{},2," \
-                  "{}.html?lang=c&stype=&postchannel=0000&workyear=99&cotype=99&degreefrom=99&jobterm=99&companysize=99" \
-                  "&providesalary=99&lonlat=0%2C0&radius=-1&ord_field=0&confirmdate=9&fromType=&dibiaoid=0&address=&line" \
-                  "=&specialarea=00&from=&welfare=".format(citycode, self.job, page)
-            self.get_urls(url)
-
-            log.printlog('多线程+' + str(page) + '页完成--' + self.city + self.job)
-            page = page + 1
-            if page == maxpage + 1:
+            # 检查是否已达到抓取数量上限
+            if self.count >= self.limit:
+                print(f"[数量限制] {self.city}-{self.job} 已抓取 {self.count} 条，达到 {self.limit} 的上限，任务提前结束。")
                 break
-        return 'over'
 
-    def get_urls(self, url):
+            data = self.request_json(self.job, page, self.city_code)
+
+            if "error" in data:
+                print(f"[错误] 请求API失败: {data['error']}")
+                break
+
+            jobs = data.get("resultbody", {}).get("job", {}).get("items", [])
+            if not jobs:
+                print(f"[完成] {self.city}-{self.job} 所有页面已爬取完毕.")
+                break
+
+            for job in jobs:
+                if self.count >= self.limit:
+                    break
+                # 解析并构造结果字典
+                result = {
+                    "provider": "前程无忧网", "keyword": self.job, "title": job.get("jobName"),
+                    "place": job.get("jobAreaString"), "salary": job.get("provideSalaryString"),
+                    "experience": job.get("workYearString"), "education": job.get("degreeString"),
+                    "companytype": job.get("companyTypeString"),
+                    "industry": f"{job.get('companyIndustryType1Str')} / {job.get('companyIndustryType2Str')}",
+                    "description": job.get("jobDescribe")
+                }
+                self.queue.put(result)
+                self.count += 1
+
+            print(f"[进度] {self.city}-{self.job} 第 {page} 页抓取成功，当前已抓取 {self.count}/{self.limit} 条")
+            page += 1
+        return "over"
+
+
+# ==============================
+#  进程：爬虫任务 (生产者)
+# ==============================
+class SpiderProcess(Process):
+    """
+    将单个爬虫任务（例如“北京-Java”）封装在一个独立的进程中。
+    这是实现并发爬取的关键，每个进程都有自己的 WebDriver 实例，避免了线程安全问题。
+    """
+
+    def __init__(self, city, job, queue, limit):
+        super().__init__()
+        self.city = city
+        self.job = job
+        self.queue = queue
+        self.limit = limit
+
+    def run(self):
+        """
+        进程启动后执行的方法。
+        """
+        process_driver = None
         try:
-            a = self.request(url=url, method='get', encoding='GBK')
-            js = etree.HTML(a).xpath('/html/body/script[2]/text()')[0]  # 注意解析变成html里的js变量了
-            jsonCode = js.partition('=')[2].strip()
-            json_res = json.loads(jsonCode)
-            urls = [i['job_href'] for i in json_res['engine_search_result']]
-            if threading.activeCount() > 10:
-                log.printlog(str(threading.activeCount()) + '线程存在，请注意检查程序外部阻塞原因')
-                time.sleep(3)
-            if self.threads:
-                for i in urls:
-                    t = threading.Thread(target=self.get_job_detail, args=(i,))
-                    t.start()
-                    time.sleep(0.03)
-            else:
-                for i in urls:
-                    self.get_job_detail(i)
+            # 每个进程必须创建自己的 WebDriver 实例
+            process_driver = webdriver.Chrome(options=options)
+            city_code = get_city_code(self.city)
+            print(f"启动爬虫进程: 城市='{self.city}', 职位='{self.job}', 数量上限={self.limit}")
+            spider = Job51Spider(self.city, self.job, city_code, self.queue, process_driver, self.limit)
+            spider.run()
         except Exception as e:
-            traceback.print_exc()
-            time.sleep(2)
-            self.get_urls(url)
+            print(f"爬虫进程 '{self.city}-{self.job}' 发生严重错误: {e}")
+        finally:
+            # 确保进程结束时浏览器被正确关闭
+            if process_driver:
+                process_driver.quit()
 
-    def get_job_detail(self, url):
-        if 'jobs' not in url:
-            return
-        try:
+
+# ==============================
+#  进程：写入 CSV (消费者)
+# ==============================
+class WriterProcess(Process):
+    """
+    独立的写文件进程。
+    从队列中获取爬虫进程产生的数据，并写入CSV文件。
+    这种“生产者-消费者”模式可以避免多进程写文件冲突，并提高效率。
+    """
+
+    def __init__(self, queue, filename="data/qcwy.csv"):
+        super().__init__()
+        self.queue = queue
+        self.filename = filename
+
+    def run(self):
+        """
+        进程启动后执行的方法。
+        """
+        # 确保目录存在
+        os.makedirs(os.path.dirname(self.filename), exist_ok=True)
+        with open(self.filename, "w", newline="", encoding="utf-8-sig") as f:
+            fieldnames = ["provider", "keyword", "title", "place", "salary", "experience", "education",
+                          "companytype", "industry", "description"]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+
             while True:
                 try:
-                    a = self.request(url=url, method='get', encoding='GBK')
-                    html = etree.HTML(a)
+                    # 从队列中获取数据，设置60秒超时
+                    item = self.queue.get(timeout=60)
+                    # 收到停止信号，结束循环
+                    if item == "STOP":
+                        print("写入进程收到停止信号，即将退出。")
+                        break
+                    writer.writerow(item)
+                except queue.Empty:
+                    # 如果60秒内队列中没有新数据，则认为所有爬虫已结束
+                    print("写入进程长时间未收到数据，自动停止。")
                     break
-                except:
-                    time.sleep(3)
-            try:
-                pay = html.xpath('/ html / body / div[3] / div[2] / div[2] / div / div[1] / strong/text()')[0].strip()
-            except:
-                pay = ''
-            list1 = html.xpath('/html/body/div[3]/div[2]/div[2]/div/div[1]/p[2]/@title')[0].split("|")
 
-            list1 = [i.strip() for i in list1]
-            if '招' in list1[2]:
-                education = None
-            else:
-                education = list1[2]
-            result = {
-                'keyword': self.job,
-                'provider': '前程无忧网',
-                'place': self.city,
-                'title': html.xpath('/html/body/div[3]/div[2]/div[2]/div/div[1]/h1/text()')[0].strip(),
-                'salary': pay,
-                'experience': list1[1],
-                'education': education,
-                'companytype': html.xpath('/html/body/div[3]/div[2]/div[4]/div[1]/div[2]/p[1]/text()')[0].strip(),
-                'industry': html.xpath('/html/body/div[3]/div[2]/div[4]/div[1]/div[2]/p[3]/text()')[0].strip(),
-                'description': html.xpath(' / html / body / div[3] / div[2] / div[3] / div[1] / div')[0].xpath(
-                    'string(.)').strip().replace('"', '').strip().replace('\t', '').replace('\r', '').replace('\n', '')
+
+# ==============================
+#  HTML 生成函数
+# ==============================
+def generate_html_from_csv(csv_file="data/qcwy.csv", html_file="static/html/data.html"):
+    """
+    读取CSV文件内容，并生成一个简单的HTML表格页面用于数据预览。
+    """
+    os.makedirs(os.path.dirname(html_file), exist_ok=True)
+    rows = []
+    headers = []
+    try:
+        with open(csv_file, 'r', encoding='utf-8-sig') as f:
+            reader = csv.reader(f)
+            headers = next(reader)
+            rows = list(reader)
+    except (FileNotFoundError, StopIteration):
+        print(f"警告: CSV文件 '{csv_file}' 为空或不存在，将生成一个空的HTML表格。")
+        if not headers:
+            headers = ["provider", "keyword", "title", "place", "salary", "experience",
+                       "education", "companytype", "industry", "description"]
+
+    # 拼接HTML字符串
+    html_content = [
+        '<!DOCTYPE html>', '<html lang="zh-CN">', '<head>',
+        '    <meta charset="UTF-8">', '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+        '<title>招聘数据展示</title>', '<style>',
+        'body { font-family: Arial, sans-serif; margin: 20px; }',
+        'table { width: 100%; border-collapse: collapse; margin-top: 20px; }',
+        'th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }',
+        'th { background-color: #f2f2f2; }',
+        'tr:nth-child(even) { background-color: #f9f9f9; }',
+        'tr:hover { background-color: #f1f1f1; }', '</style>',
+        '</head>', '<body>', '<h1>招聘数据展示</h1>', '<table>', '<thead>', '<tr>'
+    ]
+    for header in headers:
+        html_content.append(f'<th>{header}</th>')
+    html_content.extend(['</tr>', '</thead>', '<tbody>'])
+    for row in rows:
+        html_content.append('<tr>')
+        for cell in row:
+            html_content.append(f'<td>{cell}</td>')
+        html_content.append('</tr>')
+    html_content.extend(['</tbody>', '</table>', '</body>', '''
+        <!-- 通用导航栏 -->
+        <div class="navbar">
+            <a href="/" class="nav-button">返回主页</a>
+        </div>
+        <style>
+            .navbar {
+                position: fixed; top: 0; left: 0; width: 100%;
+                background-color: #333; padding: 10px 20px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 1000;
+                box-sizing: border-box; /* 确保 padding 不会撑大宽度 */
             }
-            self.queue.put(result)
-            return
-        except:
-            time.sleep(3)
-            return
-
-
-class QiluSpider(BaseSpider, metaclass=SpiderMeta):
-    request_sleep = 3
-
-    def run(self):
-        keys = [26, 2511, 24]
-        for key in keys:
-            page = 1
-
-            while True:
-                detail_list = self.get_page(page, key)
-                if detail_list == []:
-                    return 'over'
-                page = page + 1
-                # 错了
-                while detail_list != []:
-                    detail = [i.get_text(strip=True) for i in detail_list]
-                    del detail_list[:9]
-                    self.get_detail(detail)
-
-    def get_page(self, page, key):
-        pageurl = 'http://www.qlrc.com/personal/js/ajaxPager'
-        pagedata = {
-            'txtKeyWord': self.job,
-            'oldRegionID': 32,
-            'iddcIndustryID': '31 32 1 33 34',
-            'idSFrom': 1310,
-            'type': 0,
-            'page': page
-        }
-        html = self.request('post', url=pageurl, data=pagedata)
-        soup = bs4.BeautifulSoup(html, "html.parser")
-        detail_list = soup.select('.JobList table td')
-        return detail_list
-
-    def get_detail(self, detail):
-
-        list1 = detail[7].split('|')
-        result = {
-            'keyword': self.job,
-            'provider': '齐鲁人才网',
-            'place': detail[3],
-            'title': detail[0],
-            'salary': detail[4],
-            'experience': list1[1].strip(),
-            'education': list1[0].strip(),
-            'description': list1[3].strip()
-        }
-        self.queue.put(result)
-
-
-class BaiduSpider(BaseSpider, metaclass=SpiderMeta):
-    request_sleep = 1
-
-    def run(self):
-        i = 0
-        while True:
-            url = 'http://zhaopin.baidu.com/api/qzasync?query={}&city={}&pcmod=1&pn={}&rn=50&sort_type=1'.format(
-                self.job, self.city, i * 50)
-            if i * 50 >= 760:
-                return 'over'
-            i = i + 1
-            self.get_job_detail(url)
-
-    def get_job_detail(self, url):
-        html = self.request(url=url, method='get')
-        try:
-            dict1 = json.loads(html)
-        except Exception as e:
-            return
-
-        dict2 = dict1['data']['disp_data']
-
-        for i in dict2:
-            if 'jobfirstclass' not in i.keys():
-                i['jobfirstclass'] = ''
-            result = {
-                'provider': i['provider'],
-                'keyword': self.job,
-                'place': self.city,
-                'title': i['title'],
-                'salary': i['ori_salary'],
-                'experience': i['ori_experience'],
-                'education': i['ori_education'],
-                'companytype': i['employertype'],
-                'industry': i['jobfirstclass']
+            .nav-button {
+                color: white; text-decoration: none; padding: 8px 15px;
+                border-radius: 5px; transition: background-color 0.3s;
             }
-            self.queue.put(result)
+            .nav-button:hover { background-color: #555; }
+            /* 为页面主体增加上边距，防止被导航栏遮挡 */
+            body { padding-top: 60px; }
+        </style>
+        ''', '</html>'])
+
+    with open(html_file, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(html_content))
+    print(f"HTML报告已生成: {html_file}")
 
 
-class SpiderProcess(Process):
-
-    def __init__(self, data_queue, job, city, type, threads):
-        Process.__init__(self)
-        self.data_queue = data_queue
-        self.job = job
-        self.city = city
-        self.type = type
-
-        self.threads = threads
-
-    def iter_spider(self, spider, spider_count):
-        setattr(spider, 'job', self.job)
-        setattr(spider, 'city', self.city)
-        setattr(spider, 'threads', self.threads)
-        setattr(spider, 'queue', self.data_queue)
-        error = 0
-        result = spider.run()
-        if result == 'over':
-            self.data_queue.put('over')
-            error += 1
-        if error == 10:
-            log.printlog('%s-%s-%s- 爬虫已结束' % (spider.__class__.__name__, self.city, self.job))
-            return
-
-    def run(self):
-        spiders = []
-
-        if '51' in self.type:
-            spiders.append(SpiderMeta.spiders[0]())
-        if 'qilu' in self.type:
-            spiders.append(SpiderMeta.spiders[1]())
-        if 'baidu' in self.type:
-            spiders.append(SpiderMeta.spiders[2]())
-
-        spider_count = len(spiders)
-        threads = []
-        for i in range(spider_count):
-            t = Thread(target=self.iter_spider, args=(spiders[i], spider_count,))
-            t.setDaemon(True)
-            t.start()
-            threads.append(t)
-        while True:
-            if len([True for i in threads if i.is_alive() == False]) == spider_count:
-                break
-
-            time.sleep(2)
-
-        # return
+# ==============================
+#  串行任务执行函数
+# ==============================
+def run_single_task(city, job, queue, limit):
+    """
+    在主进程中按顺序执行单个爬虫任务。用于非并发模式。
+    """
+    process_driver = None
+    try:
+        process_driver = webdriver.Chrome(options=options)
+        city_code = get_city_code(city)
+        print(f"【串行模式】启动任务: 城市='{city}', 职位='{job}', 数量上限={limit}")
+        spider = Job51Spider(city, job, city_code, queue, process_driver, limit)
+        spider.run()
+    except Exception as e:
+        print(f"串行任务 '{city}-{job}' 发生严重错误: {e}")
+    finally:
+        if process_driver:
+            process_driver.quit()
 
 
-class WriterProcess(Process):
-    """写数据进程"""
+# ==============================
+#  封装单次爬取的核心逻辑
+# ==============================
+def run_crawl_once(dict_parameter: dict):
+    """
+    执行一次完整的爬取流程。
+    该函数负责解析参数、准备文件、启动生产者（爬虫）和消费者（写入）进程，
+    并最终生成HTML报告。
+    """
+    # --- 1. 定义默认的城市和职位关键词列表 ---
+    # 如果用户没有提供，则使用这些丰富的默认值
+    DEFAULT_CITIES = [
+        "北京", "上海", "广州", "深圳", "杭州", "成都", "南京", "武汉", "西安", "苏州",
+        "重庆", "长沙", "天津", "青岛", "厦门", "宁波", "大连", "福州", "济南", "无锡",
+        "合肥", "郑州", "沈阳", "昆明", "哈尔滨", "石家庄", "南昌", "东莞", "佛山", "珠海",
+        "常州", "温州", "全国"
+    ]
+    DEFAULT_JOBS = [
+        "Java", "Python", "Go", "C++", "PHP", "后端开发", "服务器",
+        "前端开发", "JavaScript", "Vue", "React", "小程序", "Android", "iOS",
+        "数据分析", "数据挖掘", "大数据", "算法工程师", "机器学习", "人工智能", "AI",
+        "深度学习", "自然语言处理", "NLP", "推荐系统",
+        "软件测试", "测试开发", "自动化测试", "运维", "DevOps", "SRE",
+        "游戏开发", "Unity", "UE4", "UE5", "游戏策划",
+        "嵌入式", "物联网", "IoT", "硬件",
+        "产品经理", "项目经理", "技术支持", "网络安全", "爬虫", "可视化",
+        "UI设计师", "销售", "运营"
+    ]
 
-    def __init__(self, data_queue, number, type=None, spider_process=None, spider_count=None):
-        Process.__init__(self)
-        self.data_queue = data_queue
-        self.type = type
-        self.number = number
-        self.spider_process = spider_process
-        self.spider_count = spider_count
+    # --- 2. 智能地获取城市和职位列表 ---
+    city_list = dict_parameter.get("city") or DEFAULT_CITIES
+    job_list = dict_parameter.get("job") or DEFAULT_JOBS
 
-    def run(self):
-        id, over = 1, 0
-        with open('data/test.csv', 'a+', encoding='utf-8', newline='') as f:
-            writer = csv.writer(f)
-            while True:
-                if id == self.number + 1:
-                    f.close()
-                    return
-                result = self.data_queue.get()
-                if result == 'over':
-                    over = over + 1
-                    if over == self.spider_count:
-                        f.close()
-                        return
-                elif result:
-                    row = [
-                        result.get('provider'), result.get('keyword'), result.get('title'), result.get('place'),
-                        result.get('salary'), result.get('experience'), result.get('education'),
-                        result.get('companytype'), result.get('industry'), result.get('description')
-                    ]
-                    id = id + 1
-                    writer.writerow(row)
+    print("=" * 50)
+    print("即将开始的爬取任务:")
+    print(f"  -> 城市 ({len(city_list)}个): {', '.join(city_list)}")
+    print(f"  -> 职位关键词 ({len(job_list)}个): {', '.join(job_list)}")
+    print("=" * 50)
 
+    # --- 3. 获取其他参数 ---
+    limit_per_task = dict_parameter.get("limit", 999999)
+    use_concurrent = dict_parameter.get("concurrent", True)
 
-def main(dict_parameter):
-    queue = Queue()
+    # --- 4. 准备文件和启动写入进程 ---
+    csv_file = "data/qcwy.csv"
+    html_file = "static/html/data.html"
+    os.makedirs("data", exist_ok=True)
+    os.makedirs("static/html", exist_ok=True)
+    if os.path.exists(csv_file): os.remove(csv_file)
+    if os.path.exists(html_file): os.remove(html_file)
 
-    jobs = ['软件', '图像', '自然语言处理', '人工智能', '学习', '前端', '后端', '数据', '算法', '测试', '网络安全', '运维', 'UI', '区块链', '网络', '全栈',
-            '硬件', 'Java', 'C++', 'PHP', 'C#', '.NET', 'Hadoop', 'Python', 'Perl', 'Ruby', 'Nodejs', 'Go', 'Javascript',
-            'Delphi', 'jsp', 'sql']
+    q = Queue()
+    writer = WriterProcess(q, filename=csv_file)
+    writer.start()
 
-    citys = ['北京', '深圳', '广州', '杭州', '武汉', '成都', '南京', '苏州', '西安', '长沙', '重庆', '合肥', '东莞', '无锡', '福州', '大连', '宁波',
-             '郑州', '济南', '天津', '佛山', '昆山', '沈阳', '青岛', '珠海', '厦门', '昆明', '南昌', '常州', '中山', '南宁', '惠州', '长春', '哈尔滨',
-             '嘉兴', '石家庄', '贵阳', '南通', '张家港', '兰州', '海口', '江门', '温州', '徐州', '扬州', '太原', '烟台', '镇江', '泉州', '唐山', '绵阳',
-             '太仓', '洛阳', '金华', '台州', '湖州', '柳州', '威海', '芜湖', '义乌', '保定', '泰州', '秦皇岛', '咸阳', '株洲', '韶关', '常熟', '澳门',
-             '湘潭', '宜昌', '香港', '盐城', '潍坊', '襄阳', '绍兴', '马鞍山', '三亚', '汕头', '宿迁', '鹰潭', '乌鲁木齐', '连云港', '呼和浩特', '德阳', '岳阳',
-             '靖江', '延安', '莆田', '新乡', '桂林', '盘锦', '鄂州', '滁州', '玉林', '黄石', '邢台', '云浮', '大理', '九江', '自贡', '济宁', '漳州', '揭阳',
-             '银川', '梅州', '鄂尔多斯', '宜春', '上饶', '鞍山', '枣庄', '六安', '荆门', '赣州', '龙岩', '西宁', '孝感', '德州', '南平', '泰安', '菏泽',
-             '阜阳', '拉萨', '清远', '宿州', '丽水', '铜陵', '湛江', '沧州', '黄山', '阿克苏', '舟山', '安庆', '临沂', '衢州', '南阳', '肇庆', '随州',
-             '吉安', '兴安盟', '萍乡', '攀枝花', '承德', '上海']
-
-    if os.path.exists('./data/test.csv'):
-        try:
-            os.remove('./data/test.csv')
-            os.remove('./static/html/data.html')
-        except:
-            pass
-    with open('data/test.csv', 'a+', encoding='utf-8', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            ['provider', 'keyword', 'title', 'place', 'salary', 'experience', 'education', 'companytype',
-             'industry', 'description'])
-    total = eval(dict_parameter.get('total')[0])  #todo 不知道为什么服务器上不需要【0】
-    number = eval(dict_parameter.get('number')[0])   #todo 不知道为什么服务器上不需要【0】
-    if dict_parameter.get('threads'):
-        threads = True
+    # --- 5. 根据配置启动爬虫（并发或串行） ---
+    if use_concurrent:
+        processes = []
+        for city in city_list:
+            for job in job_list:
+                p = SpiderProcess(city, job, q, limit_per_task)
+                processes.append(p)
+                p.start()
+                # 增加短暂延时，避免瞬间启动大量浏览器实例，降低被封禁风险
+                time.sleep(1.5)
+        # 等待所有爬虫进程执行完毕
+        for p in processes:
+            p.join()
+        print("所有并发爬虫进程已执行完毕。")
     else:
-        threads = None
-    no = 1
-    for city in citys:
-        for job in jobs:
-            if dict_parameter.get('time'):
-                timer.main(beginhour=eval(dict_parameter.get('hour')[0]),
-                           beginminute=eval(dict_parameter.get('minute')[0]))
-            spider_type = dict_parameter.get('type')
-            p1 = SpiderProcess(queue, job, city, type=spider_type, threads=threads)
-            p2 = WriterProcess(queue, number=number, spider_process=p1, spider_count=len(spider_type))
-            p1.start()
-            p2.start()
-            p2.join()
-            log.printlog(string=city + job + '爬取完成')
-            p1.terminate()
-            if no * number >= total:
-                os.system('csvtotable ./data/test.csv ./static/html/data.html')
-                p2.terminate()
-                return
-            p1.join()
-            no = no + 1
+        # 串行执行
+        for city in city_list:
+            for job in job_list:
+                run_single_task(city, job, q, limit_per_task)
+        print("所有串行爬虫任务已执行完毕。")
+
+    # --- 6. 结束写入进程并生成HTML报告 ---
+    q.put("STOP")  # 发送停止信号
+    writer.join()  # 等待写入进程结束
+    print("写入进程已结束.")
+
+    generate_html_from_csv(csv_file, html_file)
+
+
+# ==============================
+#  主函数 (最终调度器)
+# ==============================
+def main(dict_parameter: dict):
+    """
+    项目的主入口函数，负责调度爬虫任务。
+    根据参数决定是立即执行一次，还是按设定的时间表定时循环执行。
+    """
+    # 在Windows上，多进程代码必须放在 freeze_support() 调用之下。
+    # 把它放在 main 函数的入口处是最稳妥的做法。
+    freeze_support()
+
+    timer_settings = dict_parameter.get("timer", {"enable": False})
+
+    # 如果未启用定时器，则直接执行一次爬取
+    if not timer_settings.get("enable"):
+        print("模式: 立即执行单次爬取")
+        run_crawl_once(dict_parameter)
+        print("所有任务完成。")
+        return
+
+    # 如果启用定时器，则进入定时循环模式
+    print("模式: 定时循环爬取已启动")
+    bh = timer_settings["begin_hour"]
+    bm = timer_settings["begin_minute"]
+    eh = timer_settings["end_hour"]
+    em = timer_settings["end_minute"]
+    interval_minutes = timer_settings["interval"]
+
+    while True:
+        now = datetime.datetime.now()
+        begin_time = now.replace(hour=bh, minute=bm, second=0, microsecond=0)
+        end_time = now.replace(hour=eh, minute=em, second=0, microsecond=0)
+
+        # 判断当前时间是否在允许的运行时间段内
+        if begin_time <= now < end_time:
+            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] 当前处于允许运行时间段，执行爬取任务。")
+            run_crawl_once(dict_parameter)
+            print(f"本次任务完成，将休眠 {interval_minutes} 分钟后再次检查。")
+            time.sleep(interval_minutes * 60)
+        else:
+            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] 当前非运行时间，等待... (下次检查将在1分钟后)")
+            time.sleep(60)
 
 
 if __name__ == '__main__':
-    main()
+    # 确保直接运行此脚本时，多进程功能也能正常工作。
+    freeze_support()
+
+    # --- 用于直接运行脚本时的测试配置 ---
+    test_conf = {
+        "city": ["北京"],
+        "job": ["软件"],
+        "limit": 50,
+        "concurrent": False,  # 测试串行模式
+        "timer": {
+            "enable": False  # 测试单次立即执行
+        }
+    }
+    main(test_conf)

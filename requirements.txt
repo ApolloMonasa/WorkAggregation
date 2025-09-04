@@ -1,3 +1,16 @@
+# /requirement.txt
+
+#
+# 项目 Python 环境依赖文件
+# python=3.6
+# 此文件列出了项目运行所需的所有 Python 库及其精确版本。
+# 使用以下命令可以一次性安装所有依赖：
+# pip install -r requirement.txt
+#
+# 锁定版本号是为了确保在不同环境中部署时，依赖环境的一致性，
+# 避免因库版本更新导致的不兼容问题。
+#
+
 PyMySQL==0.9.2
 lxml==4.2.4
 Flask==1.1.1

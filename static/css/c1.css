@@ -1,55 +1,47 @@
-body{}
+/* /static/css/c1.css */
+
+body {
+    /* 全局 body 样式，此处为空，可用于设置全局字体、背景等 */
+}
+
+
+/* ==========================================================================
+   首页圆形导航按钮样式
+   ========================================================================== */
+
 .box {
     float: left;
     width: 230px;
     height: 230px;
     margin: 60px;
-    border-radius: 125px; /* 圆形为长宽一半*/
+    border-radius: 125px; /* 设置为宽度/高度的一半，形成圆形 */
     text-align: center;
-    box-shadow: 1px 1px 400px #9C9C9C; /*方向 方向 模糊程度*/
+    box-shadow: 1px 1px 400px #9C9C9C; /* X偏移 Y偏移 模糊半径 颜色 */
+    transition: box-shadow 0.3s ease; /* 添加平滑过渡效果 */
 }
-.box:hover
-{
-    box-shadow: 1px 1px 60px #9C9C9C!important; /*方向 方向 模糊程度*/
+
+.box:hover {
+    box-shadow: 1px 1px 60px #9C9C9C !important; /* 鼠标悬浮时增强阴影效果 */
 }
 
 .box img {
-    position: relative; /*垂直居中*/
+    position: relative;
     width: 50%;
     height: 50%;
-    top: 60px;
+    top: 60px; /* 用于垂直居中图片 */
 }
+
+
+/* ==========================================================================
+   布局容器与通用样式
+   ========================================================================== */
 
 .container {
     position: relative;
     top: 100px;
     display: inline-block;
     margin: auto;
-    text-align:center;
-}
-
-.c1 {
-    background-image: linear-gradient(to right, #4facfe 0%, #00f2fe 100%);
-}
-
-.c2 {
-    background-image: linear-gradient(to right, #43e97b 0%, #38f9d7 100%);
-}
-
-.c3 {
-    background-image: linear-gradient(to right, #fa709a 0%, #fee140 100%);
-}
-
-.c4 {
-    background-image: linear-gradient(120deg, #a6c0fe 0%, #f68084 100%);
-}
-
-a {
-    text-decoration-line: none;
-}
-
-span {
-    color: grey
+    text-align: center;
 }
 
 .container2 {
@@ -69,6 +61,49 @@ span {
     z-index: 99;
 }
 
+a {
+    text-decoration-line: none; /* 去除链接下划线 */
+}
+
+span {
+    color: grey;
+}
+
+.text {
+    color: rgba(17, 16, 18, 0.79);
+    margin: 15px;
+}
+
+.mdui-chip {
+    margin: 5px;
+}
+
+
+/* ==========================================================================
+   渐变背景色定义
+   ========================================================================== */
+
+.c1 {
+    background-image: linear-gradient(to right, #4facfe 0%, #00f2fe 100%);
+}
+
+.c2 {
+    background-image: linear-gradient(to right, #43e97b 0%, #38f9d7 100%);
+}
+
+.c3 {
+    background-image: linear-gradient(to right, #fa709a 0%, #fee140 100%);
+}
+
+.c4 {
+    background-image: linear-gradient(120deg, #a6c0fe 0%, #f68084 100%);
+}
+
+
+/* ==========================================================================
+   特定页面元素定位 (机器人、段落、悬浮按钮)
+   ========================================================================== */
+
 #robot {
     position: relative;
     float: right;
@@ -83,7 +118,6 @@ span {
 #robot3 {
     display: none;
     width: 40%;
-!important;
 }
 
 #robot4 {
@@ -96,16 +130,6 @@ span {
     display: block;
     color: black;
 }
-
-.text {
-    color: rgba(17, 16, 18, 0.79);
-    margin: 15px;
-}
-
-.mdui-chip
-{
-    margin: 5px;
-!important;}
 
 .p1 {
     position: relative;
@@ -126,21 +150,26 @@ span {
 }
 
 
+/* ==========================================================================
+   "关于我们" 页面样式
+   ========================================================================== */
 
 .boxus {
     float: left;
     width: 200px;
     height: 200px;
     margin: 50px;
-    border-radius: 125px; /* 圆形为长宽一半*/
+    border-radius: 125px; /* 形成圆形容器 */
     text-align: center;
-    box-shadow: 1px 1px 400px #9C9C9C; /*方向 方向 模糊程度*/
-    overflow: hidden !important;
+    box-shadow: 1px 1px 400px #9C9C9C;
+    overflow: hidden !important; /* 确保图片内容不会超出圆形边界 */
 }
+
 .boxus img {
-    position: relative; /*垂直居中*/
+    position: relative;
     width: 100%;
     height: 100%;
+    object-fit: cover; /* 确保图片填满容器而不变形 */
 }
 
 .ustext {
@@ -149,40 +178,36 @@ span {
     margin: 30px 50px 50px 50px;
     text-align: center;
     overflow: visible !important;
-    font-family: "微软雅黑 Light";
+    font-family: "微软雅黑 Light", sans-serif;
     color: grey;
 }
 
-.p usname {
+.p .usname {
     font-size: medium;
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
+/* ==========================================================================
+   页面加载动画 (Loader)
+   ========================================================================== */
 
 .loader {
     zoom: 1.6;
     -webkit-transform: scale(1.5);
     -moz-transform: scale(1.5);
     background-color: white;
-    position: fixed;
+    position: fixed; /* 固定在视口，覆盖整个页面 */
     z-index: 999;
     width: 100%;
     height: 100%;
+    top: 0;
+    left: 0;
     transform: rotate(165deg);
 }
 
-.loader:before, .loader:after {
+/* 使用伪元素 ::before 和 ::after 创建动画的两个部分 */
+.loader:before,
+.loader:after {
     content: '';
     position: absolute;
     top: 50%;
@@ -202,6 +227,7 @@ span {
     animation: after 2s infinite;
 }
 
+/* 定义 `before` 伪元素的动画关键帧 */
 @keyframes before {
     0% {
         width: 0.5em;
@@ -220,6 +246,7 @@ span {
     }
 }
 
+/* 定义 `after` 伪元素的动画关键帧 */
 @keyframes after {
     0% {
         height: 0.5em;
@@ -238,7 +265,11 @@ span {
     }
 }
 
-#displayno
-{
-    display: none;
+
+/* ==========================================================================
+   通用工具类
+   ========================================================================== */
+
+#displayno {
+    display: none; /* 一个简单的隐藏元素的工具类 */
 }

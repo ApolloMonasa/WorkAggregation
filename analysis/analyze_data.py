@@ -1,64 +1,105 @@
-import analysis_main as A
+# /analysis/analyze_data.py
+
+# ==============================================================================
+#  数据分析模块 - 步骤 3: 数据分析与计算
+# ==============================================================================
+#
+#  说明:
+#  此模块是数据分析流程的最后一步。它负责查询经过预处理的数据库，
+#  执行各种统计和聚合计算，并将最终用于生成图表的数据写入 `conf.ini` 文件。
+#
+#  核心功能:
+#  1. 使用装饰器 `@ways` 自动注册所有分析函数。
+#  2. `main` 函数作为调度器，按顺序执行所有已注册的分析函数。
+#  3. 每个 `fX` 函数对应一个独立的分析任务，通常为一个图表准备数据。
+#  4. 大量使用 Pandas 和 NumPy 库进行高效的数据处理和计算。
+#  5. 最终产出是更新后的 `conf.ini` 文件，其中的 `[chart]` 部分包含了
+#     所有图表所需的数据。
+#
+# ==============================================================================
+
+import analysis_main as A  # 导入中心枢纽以访问共享资源
 import numpy as np
 import pandas as pd
 import pyecharts
+import re
+import traceback  # 仅在异常处理时导入，以减少不必要的加载
 
 
-# 函数注册器
 def ways(func):
+    """
+    装饰器：将分析函数注册到 `Analyze` 类的 `analyze_fn_list` 中。
+    这使得 `main` 函数可以自动发现并执行所有被此装饰器标记的函数。
+    """
     A.Analyze.analyze_fn_list.append(func)
 
     def wrapper(*args, **kw):
         return func(*args, **kw)
-
     return wrapper
 
 
 def main():
+    """
+    数据分析流程的主入口函数。
+    负责初始化环境、调度并执行所有注册的分析函数。
+    """
     global cursor, db, conf
+    # 从共享上下文中获取数据库连接和配置对象
     cursor = A.Analyze.cursor
     db = A.Analyze.db
-
-    print(A.Analyze.analyze_fn_list)
     conf = A.Analyze.conf
+
+    # 在每次运行时，清空旧的图表配置，确保生成全新的配置
+    if conf.has_section('chart'):
+        conf.remove_section('chart')
     conf.add_section('chart')
 
+    print("开始执行分析...")
+    # 遍历并执行所有通过 @ways 装饰器注册的分析函数
     for fn in A.Analyze.analyze_fn_list:
-        fn()
-        print(fn.__name__ + '  ok')
+        try:
+            fn()
+            print(f"  -> {fn.__name__} 完成")
+        except Exception as e:
+            # 捕获单个分析函数的异常，防止整个流程中断
+            print(f"  -> !!! 分析函数 {fn.__name__} 执行出错: {e}")
+            traceback.print_exc()
 
-    with open('conf.ini', 'a') as configfile:
+    # 将所有分析结果写入配置文件
+    with open('conf.ini', 'w', encoding='utf-8') as configfile:
         conf.write(configfile)
+    print("分析完成！")
+
+
+def execute_and_fetch_with_mock_number(sql_query):
+    """
+    执行SQL查询并为每行结果附加一个模拟的计数值(1)。
+    这是一个辅助函数，用于统一处理那些本身不包含计数的查询结果，
+    使其数据结构与包含计数的查询结果一致。
+    """
+    cursor.execute(sql_query)
+    results = cursor.fetchall()
+    return [row + (1,) for row in results]
 
 
 @ways
 def f1():
-    cursor.execute("select ave_pay,number from 传统职业 where ID <'10000'")
-    re1 = cursor.fetchall()
-    m = [x[0] for x in re1 if x[0] is not None and x[1] is not None]
-    n = [int(x[1]) for x in re1 if x[0] is not None and x[1] is not None]
-    a = []
-    for i in range(0, len(m)):
-        j = 0
-        while j < n[i]:
-            a.append(m[i])
-            j += 1
-    a = np.array(a)
-    a1 = [a[i] for i in range(0, len(a)) if a[i] != a.max() and a[i] != a.min()]
+    """为图表1：传统职业与新兴职业的薪资分布箱线图准备数据。"""
+    # 查询传统职业薪资
+    re1 = execute_and_fetch_with_mock_number("select ave_pay from 传统职业 where ave_pay is not null limit 10000")
+    m = [x[0] for x in re1]
+    n = [x[1] for x in re1]
+    a = np.repeat(m, n) if m else np.array([])
+    a1 = a[(a != a.max()) & (a != a.min())].tolist() if a.size > 0 else []
 
-    cursor.execute("select ave_pay,number from 新兴职业 where id <'10000'")
-    re2 = cursor.fetchall()
-    # # #
-    m = [x[0] for x in re2 if x[0] is not None and x[1] is not None]
-    n = [int(x[1]) for x in re2 if x[0] is not None and x[1] is not None]
-    a = []
-    for i in range(0, len(m)):
-        j = 0
-        while j < n[i]:
-            a.append(m[i])
-            j += 1
-    a = np.array(a)
-    b1 = [a[i] for i in range(0, len(a)) if a[i] != a.max() and a[i] != a.min()]
+    # 查询新兴职业薪资
+    re2 = execute_and_fetch_with_mock_number("select ave_pay from 新兴职业 where ave_pay is not null limit 10000")
+    m = [x[0] for x in re2]
+    n = [x[1] for x in re2]
+    a = np.repeat(m, n) if m else np.array([])
+    b1 = a[(a != a.max()) & (a != a.min())].tolist() if a.size > 0 else []
+
+    # 使用pyecharts工具准备箱线图数据格式
     q = [a1, b1]
     re1 = pyecharts.Boxplot.prepare_data(q)
     conf.set('chart', 'chart.1.1', str(re1))
@@ -66,621 +107,344 @@ def f1():
 
 @ways
 def f2():
-    cursor.execute("select industry from 大数据职位")
-    re = cursor.fetchall()
-    cursor.execute("select number from 大数据职位")
-    num = cursor.fetchall()
+    """为图表2：大数据职位的行业分布条形图准备数据。"""
+    results = execute_and_fetch_with_mock_number("select industry from 大数据职位 where industry is not null and industry != ''")
+    industries = [row[0] for row in results]
+    nums = [row[1] for row in results]
+
+    # 清洗和聚合行业数据，处理 "互联网/游戏" 这样的组合字段
     a = {}
-    for i in range(0, len(re)):
-        x = re[i][0].split(',')
-        for k in range(0, len(x)):
-            x[k] = x[k].strip()
-            if x[k] in a:
-                a[x[k]] += int(num[i][0])
-            else:
-                a[x[k]] = int(num[i][0])
-    b = []
-    for key, value in a.items():
-        b.append([value, key])
-    b.sort(reverse=True)
-    hy = [x[1] for x in b[:10]]
-    n = [x[0] for x in b[:10]]
+    for i, industry_str in enumerate(industries):
+        x = re.split(r'[,/]', industry_str)
+        for k in x:
+            k = k.strip()
+            if k: a[k] = a.get(k, 0) + nums[i]
+
+    b = sorted(a.items(), key=lambda item: item[1], reverse=True)
+    hy = [x[0] for x in b[:10]]
+    n = [x[1] for x in b[:10]]
     conf.set('chart', 'chart.2.1', str(hy))
     conf.set('chart', 'chart.2.2', str(n))
 
 
 @ways
 def f3():
-    l1_1 = ['XXXX讲师', '项目开发经理', '`''技术/研发总监''`', '大数据开发工程师', '`''技术/研究/项目负责人''`', '服务器工程师', '数据库工程师', '软件开发工程师',
-            '建模工程师', '硬件工程师', '网络工程师', '人工智能开发工程师', '后端工程师', '机器学习工程师']
-    l2_1 = ['`''数据挖掘/分析/处理工程师''`', '数据管理工程师', 'Web前端工程师', '`''计算机维修/维护工程师''`']
-    l3_1 = ['Java工程师', '`''C++工程师''`', 'PHP工程师', '`''C#工程师''`', '`''.NET工程师''`', 'Hadoop工程师', 'Python工程师', 'Perl工程师',
-            'Ruby工程师', 'Nodejs工程师', 'Go工程师', 'Javascript工程师', 'Delphi工程师', 'jsp工程师', 'sql工程师', 'Linux开发工程师',
-            'Android开发工程师', 'IOS开发工程师', '`''GIS开发/研发工程师''`', 'BI工程师']
-    l = l1_1 + l2_1 + l3_1
-    x = []
+    """为图表3：热门职位-城市需求热力图准备数据。"""
+    l_views = [v for v in A.Analyze.available_views if '工程师' in v or '经理' in v or '总监' in v or '负责人' in v]
+    if not l_views: return
+
     city = ['上海', '深圳', '广州', '北京', '武汉', '成都', '杭州', '南京', '西安', '苏州']
     v = []
-    for i in l:
-        sql = "select number from " + str(i) + " where id <'10000'"
-        cursor.execute(sql)
-        re = cursor.fetchall()
-        re = np.array(re)
-        re = re.astype(int)
-        if len(re) == 0:
-            continue
-        else:
-            s = re.sum()
-        v.append([s, i])
-    v.sort(reverse=True)
-    l = []
-    for i in range(10):
-        l.append(v[i][1])
-    for i in l:
-        sql = "select place,number from " + str(i) + " where id <'10000'"
-        cursor.execute(sql)
-        re = cursor.fetchall()
-        re = list(re)
-        if len(re) == 0:
-            continue
+    # 1. 找出职位数量排名前10的职位类别
+    for view_name in l_views:
+        safe_view_name = '`' + view_name.replace("'", "''") + '`'
+        re_data = execute_and_fetch_with_mock_number(f"select 1 from {safe_view_name} limit 10000")
+        s = sum(row[1] for row in re_data)
+        if s > 0: v.append([s, view_name])
+
+    v.sort(key=lambda item: item[0], reverse=True)
+    if not v: return
+    top_10_jobs = [item[1] for item in v[:10]]
+
+    # 2. 对每个热门职位，统计其在主要城市的分布
+    x = []
+    for job_name in top_10_jobs:
+        safe_view_name = '`' + job_name.replace("'", "''") + '`'
+        re_data = execute_and_fetch_with_mock_number(f"select place from {safe_view_name} limit 10000")
         a = {}
-        for j in range(0, len(re)):
-            if re[j][0] in city:
-                if re[j][0] in a:
-                    a[re[j][0]] += int(re[j][1])
-                else:
-                    a[re[j][0]] = int(re[j][1])
-            else:
-                continue
+        for row in re_data:
+            if row[0] in city:
+                a[row[0]] = a.get(row[0], 0) + row[1]
         for key, value in a.items():
-            x.append([key, i, value])
-    ct = set([w[0] for w in x])
+            # 格式化为 [城市, 职位, 数量] 的热力图数据格式
+            x.append([key, job_name, value])
+
+    ct = list(set([w[0] for w in x]))
     conf.set('chart', 'chart.3.1', str(ct))
-    conf.set('chart', 'chart.3.2', str(l))
+    conf.set('chart', 'chart.3.2', str(top_10_jobs))
     conf.set('chart', 'chart.3.3', str(x))
 
 
 @ways
 def f4():
-    cursor.execute("select place,ave_pay,number from qcwy where id < '10000'")
-    re = cursor.fetchall()
-    re = list(re)
-    df = pd.DataFrame(re)
+    """为图表4：全国平均薪资Top10城市条形图准备数据。"""
+    re = execute_and_fetch_with_mock_number("select place, ave_pay from qcwy where ave_pay is not null limit 10000")
+    df = pd.DataFrame(re, columns=["place", "ave_pay", "number"])
     df = df.dropna()
-    df.columns = ["place", "ave_pay", 'number']
-    df['number'] = df['number'].astype(int)
-    a = df.groupby('place').mean().sort_values(by='ave_pay', ascending=False)
-    a = list(a.index)
-    a1 = df.groupby('place')['number']
-    a2 = df.groupby('place')['ave_pay']
-    b = []
-    c = [a[i] for i in range(len(a)) if a[i].find('省') == -1 and a[i] != '台湾' and a[i] != '吉林' and a[i] != '国外' \
-         and a[i] != '宣城' and a[i] != '新疆' and a[i] != '池州' and a[i] != '燕郊开发区' \
-         and a[i] != '黔西南']
-    # 取出前十的城市及薪资
-    for i in c:
-        v = a1.get_group(i).values
-        u = a2.get_group(i).values
-        for j in range(0, len(v)):
-            u[j] = u[j] * v[j]
-        u = np.array(u)
-        v = np.array(v)
-        s = round(u.sum() / v.sum(), 2)
-        b.append([s, i])
-    b.sort(reverse=True)
-    x = [w[1] for w in b[:10]]
-    y = [w[0] for w in b[:10]]
-    conf.set('chart', 'chart.4.1', str(x))
-    conf.set('chart', 'chart.4.2', str(y))
+
+    # 按城市分组计算平均薪资并排序
+    avg_pay_by_city = df.groupby('place')['ave_pay'].mean().round(2).sort_values(ascending=False)
+    # 过滤掉省级、自治区等非城市单位
+    valid_cities = [city for city in avg_pay_by_city.index if '省' not in city and '自治' not in city and '台湾' not in city and '国外' not in city]
+
+    top_10 = avg_pay_by_city[valid_cities][:10]
+    conf.set('chart', 'chart.4.1', str(top_10.index.tolist()))
+    conf.set('chart', 'chart.4.2', str(top_10.values.tolist()))
 
 
 @ways
 def f5():
-    cursor.execute("select place,number from 大数据职位")
-    re = cursor.fetchall()
-    # 将数据存入 dataframe 中
-    re = list(re)
-    df = pd.DataFrame(re)
-    df.columns = ['place', 'num']
-    df['num'] = df['num'].astype('int')
-    # 用groupby函数进行分组，求和，排序
-    a = df.groupby('place').sum().sort_values(by='num', ascending=False)
-    # 取出前十的城市及需求量
-    b = [x for x in a.values[:10]]
-    c = [x for x in a.index[:10]]
-    # 将数组一维化
-    b = np.array(b)
-    b = b.ravel()
-    b = list(b)
+    """为图表5：大数据职位需求量Top10城市条形图准备数据。"""
+    re = execute_and_fetch_with_mock_number("select place from 大数据职位")
+    df = pd.DataFrame(re, columns=['place', 'num'])
+    df = df.dropna()
+    a = df.groupby('place')['num'].sum().sort_values(ascending=False)
+
+    c = a.index[:10].tolist()
+    b = a.values[:10].tolist()
     conf.set('chart', 'chart.5.1', str(c))
     conf.set('chart', 'chart.5.2', str(b))
 
 
 @ways
 def f6():
-    # 将学历，经验，薪水提出来                                     分析了10000条数据
-    cursor.execute("select education,experience,ave_pay,number from qcwy where id <'10000'")
-    re = cursor.fetchall()
-    # 转化为dataframe
-    re = list(re)
-    df = pd.DataFrame(re)
-    df = df.dropna()
-    df.columns = ['education', 'experience', 'ave_pay', 'number']
-    # df['experience'] = df['experience'].astype(int)
-    df['number'] = df['number'].astype(int)
+    """为图表6：学历-经验与薪资关系3D散点图准备数据。"""
+    sql = "SELECT education, experience, ave_pay FROM qcwy WHERE ave_pay IS NOT NULL AND experience IS NOT NULL AND experience REGEXP '^[0-9]+$' LIMIT 10000"
+    re = execute_and_fetch_with_mock_number(sql)
+    if not re: return
+
+    df = pd.DataFrame(re, columns=['education', 'experience', 'ave_pay', 'number'])
+    df['experience'] = pd.to_numeric(df['experience'], errors='coerce')
+    df.dropna(subset=['experience'], inplace=True)
     df['experience'] = df['experience'].astype(int)
-    # 分组
-    q = df.groupby(['education', 'experience'])['ave_pay']
-    x = df.groupby(['education', 'experience'])['number']
-    # p = df.groupby('education')['ave_pay'].mean()
-    # 获得所有的经验值
-    w = df.groupby('experience')['ave_pay'].mean()
-    # 只选了需求较多的几个学历
+    if df.empty: return
+
+    # 定义学历和经验的展示顺序
     p = ['', '中专', '大专', '本科', '硕士']
-    # 经验，排序
-    w = list(w.index)
-    w.sort()
+    w = sorted(df['experience'].unique())
+
+    # 按学历和经验分组，计算平均薪资
+    grouped = df.groupby(['education', 'experience'])['ave_pay'].mean().round(2)
+
     t = []
     for i in p:
         for j in w:
             try:
-                v = q.get_group((i, j)).values
-                u = x.get_group((i, j)).values
-                for k in range(0, len(v)):
-                    v[k] = v[k] * u[k]
-                s = v.sum() / u.sum()
-                v = round(s, 2)
-                j = str(j) + '年'
-                if i == '':
-                    t.append(['不限', j, v])
-                else:
-                    t.append([i, j, v])
-            except:
-                pass
-    for i in range(0, len(w)):
-        w[i] = str(w[i]) + '年'
-    p[0] = '不限'
+                if (i, j) in grouped.index:
+                    v = grouped.loc[(i, j)]
+                    j_str = str(j) + '年'
+                    i_str = i if i else '不限'
+                    t.append([i_str, j_str, v])
+            except KeyError:
+                continue
+
+    w_str = [str(exp) + '年' for exp in w]
+    p[0] = '不限'  # 将空字符串替换为更友好的标签
     conf.set('chart', 'chart.6.1', str(p))
-    conf.set('chart', 'chart.6.2', str(w))
+    conf.set('chart', 'chart.6.2', str(w_str))
     conf.set('chart', 'chart.6.3', str(t))
 
 
 @ways
 def f7():
-    cursor.execute("select education,ave_pay,number from qcwy where id < '10000'")
-    re = cursor.fetchall()
-    df = pd.DataFrame(list(re))
-    df = df.dropna()
-    df.columns = ['education', 'pay', 'num']
-    df['num'] = df['num'].astype(int)
-    a = df.groupby('education')['pay']
-    b = df.groupby('education')['num']
-    c = df.groupby('education')['num'].sum()
-    x = []
-    y = []
-    z = []
-    for i in list(c.index):
-        v = a.get_group(i).values
-        w = np.array(b.get_group(i).values)
-        s = 0
-        for j in range(0, len(v)):
-            s += v[j] * int(w[j])
-        x.append(i)
-        y.append(round(s / w.sum(), 2))
-        z.append(w.sum())
-    x[x.index('')] = '不限'
-    conf.set('chart', 'chart.7.1', str(x))
-    conf.set('chart', 'chart.7.2', str(y))
-    conf.set('chart', 'chart.7.3', str(z))
+    """为图表7：学历与薪资、需求量关系图准备数据。"""
+    re = execute_and_fetch_with_mock_number("select education, ave_pay from qcwy where ave_pay is not null and education is not null and education != '' limit 10000")
+    if not re: return
+    df = pd.DataFrame(re, columns=['education', 'pay', 'num'])
 
+    # 按学历分组，聚合计算平均薪资和职位总数
+    result = df.groupby('education').agg({'pay': 'mean', 'num': 'sum'}).round(2)
+    result.index = [idx if idx else '不限' for idx in result.index]
 
-@ways
-def f8():
-    cursor.execute("select city,ave_pay from qlrc")
-    re = cursor.fetchall()
-    df = pd.DataFrame(list(re))
-    df.columns = ['city', 'pay']
-    df = df.dropna()
-    df['pay'] = df['pay'].astype(float)
-    a = df.groupby('city')['pay'].mean().sort_values(ascending=False)
-    city = [list(a.index)[i] for i in range(10)]
-    pay = [round(list(a.values)[i], 2) for i in range(10)]
-    conf.set('chart', 'chart.8.1', str(city))
-    conf.set('chart', 'chart.8.2', str(pay))
-
-
-@ways
-def f9():
-    cursor.execute("select city from qlrc ")
-    re = cursor.fetchall()
-    df = pd.DataFrame(list(re))
-    df.columns = ['city']
-    df = df.dropna()
-    a = df.groupby('city')['city'].count()
-    conf.set('chart', 'chart.9.1', str(list(a.index)))
-    conf.set('chart', 'chart.9.2', str(list(a.values)))
+    conf.set('chart', 'chart.7.1', str(result.index.tolist()))
+    conf.set('chart', 'chart.7.2', str(result['pay'].tolist()))
+    conf.set('chart', 'chart.7.3', str(result['num'].tolist()))
 
 
 @ways
 def f10():
-    cursor.execute("select experience,education ,number from 传统职业 where id <'10000'")
-    re = cursor.fetchall()
-    df1 = pd.DataFrame(list(re))
-    df1 = df1.dropna()
-    # 学历
-    df1.columns = ['experience', 'education', 'number']
-    df1['number'] = df1['number'].astype(int)
-    q = df1.groupby('education')['number'].sum()
+    """为图表10：传统与新兴职业对学历、经验要求的对比饼图准备数据。"""
+    re1 = execute_and_fetch_with_mock_number("select experience, education from 传统职业 where experience is not null and education is not null and experience != '' and education != '' limit 10000")
+    if not re1: return
+    df1 = pd.DataFrame(re1, columns=['experience', 'education', 'number'])
+    df1['experience'] = pd.to_numeric(df1['experience'], errors='coerce').dropna().astype(int)
+
+    re2 = execute_and_fetch_with_mock_number("select experience, education from 新兴职业 where experience is not null and education is not null and experience != '' and education != '' limit 10000")
+    if not re2: return
+    df2 = pd.DataFrame(re2, columns=['experience', 'education', 'number'])
+    df2['experience'] = pd.to_numeric(df2['experience'], errors='coerce').dropna().astype(int)
+
     a = ['', '中专', '大专', '本科', '硕士']
-    k = list(q.index)
-    b = [k[i] for i in range(0, len(k)) if k[i] in a]
-    try:
-        b[b.index('')] = '不限'
-    except:
-        pass
-    c = [q.values[i] for i in range(0, len(k)) if k[i] in a]
-    cursor.execute("select experience,education ,number from 新兴职业 where id <'10000'")
-    re = cursor.fetchall()
-    df2 = pd.DataFrame(list(re))
-    df2 = df2.dropna()
-    df2.columns = ['experience', 'education', 'number']
-    df2['number'] = df2['number'].astype(int)
-    q = df2.groupby('education')['number'].sum()
-    k = list(q.index)
-    d = [k[i] for i in range(0, len(k)) if k[i] in a]
-    try:
-        d[d.index('')] = '不限'
-    except:
-        pass
-    f = [q.values[i] for i in range(0, len(k)) if k[i] in a]
+    # 传统职业学历分布
+    q1 = df1.groupby('education')['number'].sum()
+    b = [idx for idx in q1.index if idx in a]
+    c = q1[b].values.tolist()
+    if '' in b: b[b.index('')] = '不限'
+
+    # 新兴职业学历分布
+    q2 = df2.groupby('education')['number'].sum()
+    d = [idx for idx in q2.index if idx in a]
+    f = q2[d].values.tolist()
+    if '' in d: d[d.index('')] = '不限'
+
+    # 传统职业经验分布
     p1 = df1.groupby('experience')['number'].sum()
-    k = list(p1.index)
-    for i in range(0, len(k)):
-        k[i] = str(k[i]) + '年'
+    k = [str(idx) + '年' for idx in p1.index]
+
+    # 新兴职业经验分布
     p2 = df2.groupby('experience')['number'].sum()
-    j = list(p2.index)
-    for i in range(0, len(j)):
-        j[i] = str(j[i]) + '年'
+    j = [str(idx) + '年' for idx in p2.index]
+
     conf.set('chart', 'chart.10.1', str(b))
     conf.set('chart', 'chart.10.2', str(c))
     conf.set('chart', 'chart.10.3', str(d))
     conf.set('chart', 'chart.10.4', str(f))
     conf.set('chart', 'chart.10.5', str(k))
-    conf.set('chart', 'chart.10.6', str(list(p1.values)))
+    conf.set('chart', 'chart.10.6', str(p1.values.tolist()))
     conf.set('chart', 'chart.10.7', str(j))
-    conf.set('chart', 'chart.10.8', str(list(p2.values)))
+    conf.set('chart', 'chart.10.8', str(p2.values.tolist()))
 
 
 @ways
 def f11():
-    l1_1 = ['XXXX讲师', '项目开发经理', '`''技术/研发总监''`', '大数据开发工程师', '`''技术/研究/项目负责人''`', '服务器工程师', '数据库工程师', '软件开发工程师',
-            '建模工程师', '硬件工程师', '网络工程师', '人工智能开发工程师', '后端工程师', '机器学习工程师']
-    l2_1 = ['`''数据挖掘/分析/处理工程师''`', '数据管理工程师', 'Web前端工程师', '`''计算机维修/维护工程师''`']
-    l3_1 = ['Java工程师', '`''C++工程师''`', 'PHP工程师', '`''C#工程师''`', '`''.NET工程师''`', 'Hadoop工程师', 'Python工程师', 'Perl工程师',
-            'Ruby工程师', 'Nodejs工程师', 'Go工程师', 'Javascript工程师', 'Delphi工程师', 'jsp工程师', 'sql工程师', 'Linux开发工程师',
-            'Android开发工程师', 'IOS开发工程师', '`''GIS开发/研发工程师''`', 'BI工程师']
-    l = l1_1 + l2_1 + l3_1
+    """为图表11：热门职位对工作经验要求条形图准备数据。"""
+    l_views = [v for v in A.Analyze.available_views if '工程师' in v or '经理' in v or '总监' in v or '负责人' in v]
+    if not l_views: return
     a = []
-    for i in l:
-        sql = "select experience,number from " + str(i) + " where id <'10000'"
-        # print(sql)
-        cursor.execute(sql)
-        re = cursor.fetchall()
-        re = list(re)
-        if len(re) == 0:
-            continue
-        # print(re)
-        c = np.array(list(map(lambda x: int(x[0]) * int(x[1]), re)))
-        d = np.array([int(x[1]) for x in re])
-        c = c.astype(int)
-        d = d.astype(int)
-        s = round(c.sum() / d.sum(), 2)
-        a.append([s, i])
-    a.sort(reverse=True)
-    x = [a[i][1] for i in range(10)]
-    y = [a[i][0] for i in range(10)]
+    for view_name in l_views:
+        safe_view_name = '`' + view_name.replace("'", "''") + '`'
+        re_data = execute_and_fetch_with_mock_number(f"select experience from {safe_view_name} where experience is not null and experience != '' limit 10000")
+        if not re_data: continue
+        df = pd.DataFrame(re_data, columns=['experience', 'number'])
+        df['experience'] = pd.to_numeric(df['experience'], errors='coerce').dropna().astype(int)
+        if df.empty: continue
+        # 加权平均计算平均经验要求
+        avg_exp = (df['experience'] * df['number']).sum() / df['number'].sum()
+        a.append([avg_exp, view_name])
+
+    a.sort(key=lambda item: item[0], reverse=True)
+    if not a: return
+    x = [item[1] for item in a[:10]]
+    y = [round(item[0], 2) for item in a[:10]]
     conf.set('chart', 'chart.11.1', str(x))
     conf.set('chart', 'chart.11.2', str(y))
 
 
 @ways
 def f12():
-    cursor.execute("select experience,ave_pay,number from qcwy where id < '10000'")
-    re = cursor.fetchall()
-    df = pd.DataFrame(list(re))
-    df = df.dropna()
-    df.columns = ['experience', 'pay', 'num']
-    df['num'] = df['num'].astype(int)
-    a = df.groupby('experience')['pay']
-    b = df.groupby('experience')['num']
-    c = df.groupby('experience')['num'].sum()
-    data = []
-    for i in list(c.index):
-        v = a.get_group(i).values
-        w = np.array(b.get_group(i).values)
-        s = 0
-        for j in range(0, len(v)):
-            s += v[j] * int(w[j])
-        data.append([i, w.sum(), round(s / w.sum(), 2)])
+    """为图表12：工作经验与薪资、需求量关系气泡图准备数据。"""
+    re = execute_and_fetch_with_mock_number("select experience, ave_pay from qcwy where experience is not null and experience != '' and ave_pay is not null limit 10000")
+    if not re: return
+    df = pd.DataFrame(re, columns=['experience', 'pay', 'num'])
+    df['experience'] = pd.to_numeric(df['experience'], errors='coerce').dropna().astype(int)
+
+    result = df.groupby('experience').agg({'pay': 'mean', 'num': 'sum'}).round(2)
+
+    # 格式化为 [经验, 需求量, 平均薪资] 的气泡图数据
+    data = [[idx, row['num'], row['pay']] for idx, row in result.iterrows()]
     conf.set('chart', 'chart.12.1', str(data))
 
 
 @ways
 def f13():
-    l1_1 = ['XXXX讲师', '项目开发经理', '`''技术/研发总监''`', '大数据开发工程师', '`''技术/研究/项目负责人''`', '服务器工程师', '数据库工程师', '软件开发工程师',
-            '建模工程师', '硬件工程师', '网络工程师', '人工智能开发工程师', '后端工程师', '机器学习工程师']
-    l2_1 = ['`''数据挖掘/分析/处理工程师''`', '数据管理工程师', 'Web前端工程师', '`''计算机维修/维护工程师''`']
-    l3_1 = ['Java工程师', '`''C++工程师''`', 'PHP工程师', '`''C#工程师''`', '`''.NET工程师''`', 'Hadoop工程师', 'Python工程师', 'Perl工程师',
-            'Ruby工程师', 'Nodejs工程师', 'Go工程师', 'Javascript工程师', 'Delphi工程师', 'jsp工程师', 'sql工程师', 'Linux开发工程师',
-            'Android开发工程师', 'IOS开发工程师', '`''GIS开发/研发工程师''`', 'BI工程师']
-    l = l1_1 + l2_1 + l3_1
-    x = []
-    y = []
-    z = []
-    for i in l:
-        sql = "select ave_pay,number from " + str(i) + " where id <'10000'"
-        # print(sql)
-        cursor.execute(sql)
-        re = cursor.fetchall()
-        re = list(re)
-        if len(re) == 0:
-            continue
-        re1 = [x for x in re if x[0] is not None]
-        c = np.array(list(map(lambda x: float(x[0]) * int(x[1]), re1)))
-        d = np.array([x[1] for x in re1])
-        c = c.astype(float)
-        d = d.astype(float)
-        s = round(c.sum() / d.sum(), 2)
-        x.append(i)
-        y.append(s)
-        z.append(d.sum())
-    conf.set('chart', 'chart.13.1', str(x))
-    conf.set('chart', 'chart.13.2', str(y))
-    conf.set('chart', 'chart.13.3', str(z))
+    """为图表13：热门职位薪资词云图准备数据。"""
+    # 此函数复用 f15 的计算结果来生成词云图的数据。
+    f15()
+    if A.Analyze.conf.has_option('chart', 'chart.15.1'):
+        conf.set('chart', 'chart.13.1', conf.get('chart', 'chart.15.1'))
+        conf.set('chart', 'chart.13.2', conf.get('chart', 'chart.15.2'))
+        conf.set('chart', 'chart.13.3', str([1] * 10))  # 词云权重，此处简化为相同权重
 
 
 @ways
 def f14():
-    l1 = ['软件开发', '人工智能', '`''深度\机器学习''`', '前端', '后端', '数据', '算法', '游戏',
-          '测试', '安全', '运维', 'UI', '区块链', '网络', '全栈', '硬件', '物联网']
+    """为图表14：非技术岗位的薪资排行条形图准备数据。"""
+    # 筛选出非“工程师”类的职位视图
+    l_views = [v for v in A.Analyze.available_views if 'view' not in v and ('工程师' not in v or '师' not in v)]
+    if not l_views: return
     a = {}
-    for i in l1:
-        sql = "select ave_pay,number from  " + str(i) + " where id <'10000'"
-        cursor.execute(sql)
-        re = cursor.fetchall()
-        re = list(re)
-        if len(re) == 0:
-            continue
-        re1 = [x for x in re if x[0] is not None]
-        c = np.array(list(map(lambda x: x[0] * int(x[1]), re1)))
-        d = np.array([int(x[1]) for x in re1])
-        s = round(c.sum() / d.sum(), 2)
-        a[i] = s
-    list_words = []
-    for key, value in a.items():
-        list_words.append([value, key])
-    list_words.sort(reverse=True)
-    q = [x[0] for x in list_words[:10]]
-    p = [x[1] for x in list_words[:10]]
+    for view_name in l_views:
+        safe_view_name = '`' + view_name.replace("'", "''") + '`'
+        re_data = execute_and_fetch_with_mock_number(f"select ave_pay from {safe_view_name} where ave_pay is not null limit 10000")
+        if not re_data: continue
+        df = pd.DataFrame(re_data, columns=['ave_pay', 'number'])
+        avg_pay = (df['ave_pay'] * df['number']).sum() / df['number'].sum()
+        a[view_name.replace('\\', '/')] = avg_pay
+
+    list_words = sorted(a.items(), key=lambda item: item[1], reverse=True)
+    if not list_words: return
+    p = [item[0] for item in list_words[:10]]
+    q = [round(item[1]) for item in list_words[:10]]
     conf.set('chart', 'chart.14.1', str(p))
     conf.set('chart', 'chart.14.2', str(q))
 
 
 @ways
 def f15():
-    l1_1 = ['XXXX讲师', '项目开发经理', '`''技术/研发总监''`', '大数据开发工程师', '`''技术/研究/项目负责人''`', '服务器工程师', '数据库工程师', '软件开发工程师',
-            '建模工程师', '硬件工程师', '网络工程师', '人工智能开发工程师', '后端工程师', '机器学习工程师']
-    l2_1 = ['`''数据挖掘/分析/处理工程师''`', '数据管理工程师', 'Web前端工程师', '`''计算机维修/维护工程师''`']
-    l3_1 = ['Java工程师', '`''C++工程师''`', 'PHP工程师', '`''C#工程师''`', '`''.NET工程师''`', 'Hadoop工程师', 'Python工程师', 'Perl工程师',
-            'Ruby工程师', 'Nodejs工程师', 'Go工程师', 'Javascript工程师', 'Delphi工程师', 'jsp工程师', 'sql工程师', 'Linux开发工程师',
-            'Android开发工程师', 'IOS开发工程师', '`''GIS开发/研发工程师''`', 'BI工程师']
-    l = l1_1 + l2_1 + l3_1
+    """为图表15：热门职位薪资排行条形图准备数据。"""
+    l_views = [v for v in A.Analyze.available_views if '工程师' in v or '经理' in v or '总监' in v or '负责人' in v]
+    if not l_views: return
     a = []
-    for i in l:
-        sql = "select ave_pay,number from " + str(i) + " where id <'10000'"
-        cursor.execute(sql)
-        re = cursor.fetchall()
-        re = list(re)
-        if len(re) == 0:
-            continue
-        re1 = [x for x in re if x[0] is not None]
-        c = np.array(list(map(lambda x: float(x[0]) * int(x[1]), re1)))
-        d = np.array([int(x[1]) for x in re1])
-        s = round(c.sum() / d.sum(), 2)
-        a.append([s, i])
-    a.sort(reverse=True)
-    x = [x[1] for x in a[:10]]
-    y = [x[0] for x in a[:10]]
+    for view_name in l_views:
+        safe_view_name = '`' + view_name.replace("'", "''") + '`'
+        re_data = execute_and_fetch_with_mock_number(f"select ave_pay from {safe_view_name} where ave_pay is not null limit 10000")
+        if not re_data: continue
+        df = pd.DataFrame(re_data, columns=['ave_pay', 'number'])
+        avg_pay = (df['ave_pay'] * df['number']).sum() / df['number'].sum()
+        a.append([avg_pay, view_name])
+
+    a.sort(key=lambda item: item[0], reverse=True)
+    if not a: return
+    x = [item[1] for item in a[:10]]
+    y = [round(item[0]) for item in a[:10]]
     conf.set('chart', 'chart.15.1', str(x))
     conf.set('chart', 'chart.15.2', str(y))
 
 
 @ways
 def f16():
-    cursor.execute("select place,number from qcwy ")
-    re = cursor.fetchall()
-    re = list(re)
-    df = pd.DataFrame(re)
-    df = df.dropna()
-    df.columns = ['place', 'num']
-    df['num'] = df['num'].astype('int')
-    # 根据place进行分组，根据num进行排序
-    w = df.groupby('place').sum().sort_values(by='num', ascending=False)
-    z = np.array(w.values)
-    z = z.ravel()
-    w = list(w.index)
-    c = [w[i] for i in range(10)]
-    d = [z[i] for i in range(10)]
+    """为图表16：全国职位需求量Top10城市条形图准备数据。"""
+    re = execute_and_fetch_with_mock_number("select place from qcwy where place is not null")
+    df = pd.DataFrame(re, columns=['place', 'num']).dropna()
+    w = df.groupby('place')['num'].sum().sort_values(ascending=False)
+
+    c = w.index[:10].tolist()
+    d = w.values[:10].tolist()
     conf.set('chart', 'chart.16.1', str(c))
     conf.set('chart', 'chart.16.2', str(d))
 
 
 @ways
 def f17():
+    """为图表17：热门技术岗位薪资排行条形图准备数据。"""
+    l_views = [v for v in A.Analyze.available_views if '工程师' in v]
+    if not l_views: return
     x = []
-    l1 = ['Java工程师', 'C++工程师', 'PHP工程师', 'C#工程师', '.NET工程师', 'Hadoop工程师', 'Python工程师', 'Perl工程师', 'Ruby工程师',
-          'Nodejs工程师', 'Go工程师', 'Javascript工程师', 'Delphi工程师', 'jsp工程师', 'sql工程师', 'Linux开发工程师', 'Android开发工程师',
-          'IOS开发工程师', 'GIS开发/研发工程师', 'BI工程师']
-    for i in l1:
-        j = '`' + i + '`'  # SKILL_PAY
-        sql = "SELECT AVE_PAY,NUMBER FROM " + j + ""
-        cursor.execute(sql)
-        re = cursor.fetchall()
-        re = list(re)
-        if len(re) == 0:
-            continue
-        re1 = [x for x in re if x[0] is not None]
-        c = np.array(list(map(lambda x: float(x[0]) * int(x[1]), re1)))
-        d = np.array([int(x[1]) for x in re1])
-        s = round(c.sum() / d.sum(), 2)
-        x.append([s, i])
-    x.sort(reverse=True)
-    jn = [a[1] for a in x[:10]]
-    mo = [a[0] for a in x[:10]]
+    for view_name in l_views:
+        safe_view_name = '`' + view_name.replace("'", "''") + '`'
+        re_data = execute_and_fetch_with_mock_number(f"select ave_pay from {safe_view_name} where ave_pay is not null")
+        if not re_data: continue
+        df = pd.DataFrame(re_data, columns=['ave_pay', 'number'])
+        avg_pay = (df['ave_pay'] * df['number']).sum() / df['number'].sum()
+        x.append([avg_pay, view_name])
+
+    x.sort(key=lambda item: item[0], reverse=True)
+    if not x: return
+    jn = [item[1] for item in x[:10]]
+    mo = [round(item[0]) for item in x[:10]]
     conf.set('chart', 'chart.17.1', str(jn))
     conf.set('chart', 'chart.17.2', str(mo))
 
 
 @ways
 def f18():
-    cursor.execute("select title,number from 新兴职业 where id <'10000'")
-    re = cursor.fetchall()
-    a = ['学习', '人工智能', '数据', '区块链', '算法', '物联网', '视觉', '自然语言']
-    re = list(re)
-    df = pd.DataFrame(re)
-    df.columns = ['job', 'number']
-    df['number'] = df['number'].astype(int)
+    """为图表18：新兴职业内部构成饼图准备数据。"""
+    re = execute_and_fetch_with_mock_number("select title from 新兴职业 limit 10000")
+    if not re: return
+    df = pd.DataFrame(re, columns=['job', 'number'])
+
+    keywords = ['学习', '人工智能', '数据', '区块链', '算法', '物联网', '视觉', '自然语言']
     b = {}
-    s = 0
-    for i in range(0, df.shape[0] - 1):
-        s += df.ix[i, 'number']
-        for j in a:
-            if df.ix[i, 'job'].find(j) != -1:
-                if j in b:
-                    b[j] += df.ix[i, 'number']
-                else:
-                    b[j] = df.ix[i, 'number']
-    job = []
-    num = []
-    for key, value in b.items():
-        key = key.replace('数据', '大数据')
-        key = key.replace('学习', '机器学习')
-        key = key.replace('视觉', '机器视觉')
-        job.append(key)
-        num.append(round(value / s, 2))
+    total_num = df['number'].sum()
+    if total_num == 0: return
+
+    for kw in keywords:
+        count = df[df['job'].str.contains(kw)]['number'].sum()
+        if count > 0:
+            b[kw] = count
+
+    # 格式化标签名称
+    job = [k.replace('数据', '大数据').replace('学习', '机器学习').replace('视觉', '机器视觉') for k in b.keys()]
+    num = [round(v / total_num, 2) for v in b.values()]
     conf.set('chart', 'chart.18.1', str(job))
     conf.set('chart', 'chart.18.2', str(num))
-
-
-@ways
-def f19():
-    l1 = ['华为', '搜狐', '滴滴出行', '金山', '新浪', '美团', '甲骨文', '阿里巴巴', '微软', '爱奇艺', '中国电信', '百度', '奇虎', '英特尔', '完美世界', '字节跳动',
-          '中国移动', '中国联通', '巨人网络', '浪潮', '联想', '搜狗', '蚂蚁金服', '腾讯', '网易', '小米', 'IBM', '京东']
-    l2 = ['初中及以下', '中专、技校、中技', '高中', '大专', '本科', '硕士', '博士', '不限']
-    a = {}
-    for i in l1:
-        j = '`' + i + '`'
-        sql = "SELECT COUNT(*) FROM " + j + ""
-        cursor.execute(sql)
-        results = cursor.fetchone()
-        count1 = []
-        for m in l2:
-            if m == '初中及以下':
-                sql = "SELECT ID FROM " + j + "where (education like  '%初中%')"
-                cursor.execute(sql)
-                result = cursor.fetchall()
-                num = len(result)
-                num = int(num)
-                count1.append(num)
-            elif m == '中专、技校、中技':
-                sql = "SELECT ID FROM " + j + "where (education like '%中专%' or education like '%技校%' or education like '%中技%')"
-                cursor.execute(sql)
-                result = cursor.fetchall()
-                num = len(result)
-                num = int(num)
-                count1.append(num)
-            else:
-                sql = "SELECT ID FROM " + j + "where (education like '%" + m + "%')"
-                cursor.execute(sql)
-                result = cursor.fetchall()
-                num = len(result)
-                num = int(num)
-                count1.append(num)
-        a[i] = count1
-    data = []
-    for key, value in a.items():
-        data.append(value)
-    conf.set('chart', 'chart.19.1', str(l1))
-    conf.set('chart', 'chart.19.2', str(l2))
-    conf.set('chart', 'chart.19.3', str(data))
-
-
-@ways
-def f20():
-    l1 = ['华为', '搜狐', '滴滴出行', '金山', '新浪', '美团', '甲骨文', '阿里巴巴', '微软', '爱奇艺', '中国电信', '百度', '奇虎', '英特尔', '完美世界', '字节跳动',
-          '中国移动', '中国联通', '巨人网络', '浪潮', '联想', '搜狗', '蚂蚁金服', '腾讯', '网易', '小米', 'IBM', '京东']
-    x = []
-    y = []
-    g = []
-    for i in l1:
-        j = '`' + i + '`'  # SKILL_PAY
-        sql = "SELECT AVE_PAY FROM " + j + "where( AVE_PAY not like '面议')"
-        cursor.execute(sql)
-        results = cursor.fetchall()
-        results = list(results)
-        results = pd.DataFrame(results)
-        results = results.dropna()
-        if len(results) == 0:
-            continue
-        results.columns = ['PAY']
-        results[['PAY']] = results[['PAY']].astype(float)
-        ave = results['PAY'].mean()
-        ave = float(ave)
-        ave = round(ave, 2)
-        sql = "SELECT experience2 FROM " + j + ""
-        cursor.execute(sql)
-        results = cursor.fetchall()
-        results = list(results)
-        results = pd.DataFrame(results)
-        results.columns = ['EXP']
-        results[['EXP']] = results[['EXP']].astype(float)
-        ave3 = results['EXP'].mean()
-        ave3 = round(ave3, 2)
-        x.append(ave)
-        y.append(ave3)
-        g.append(i)
-    conf.set('chart', 'chart.20.1', str(g))
-    conf.set('chart', 'chart.20.2', str(x))
-    conf.set('chart', 'chart.20.3', str(y))
-
-
-@ways
-def f21():
-    l1 = ['华为', '搜狐', '滴滴出行', '金山', '新浪', '美团', '甲骨文', '阿里巴巴', '微软', '爱奇艺', '中国电信', '百度', '奇虎', '英特尔', '完美世界', '字节跳动',
-          '中国移动', '中国联通', '巨人网络', '浪潮', '联想', '搜狗', '蚂蚁金服', '腾讯', '网易', '小米', 'IBM', '京东']
-    a = {}
-    for i in l1:
-        j = '`' + i + '`'
-        sql = "SELECT welfare FROM " + j + ""
-        cursor.execute(sql)
-        re = list(cursor.fetchall())
-        for i in re:
-            if i[0] == '':
-                continue
-            q = i[0].replace('[', '')
-            q = q.replace(']', '')
-            x = q.split(',')
-            for k in x:
-                k = k.replace("'", '')
-                if k in a:
-                    a[k] += 1
-                else:
-                    a[k] = 1
-    x = []
-    y = []
-    for key, values in a.items():
-        x.append(key)
-        y.append(values)
-    db.close()
-    conf.set('chart', 'chart.21.1', str(x))
-    conf.set('chart', 'chart.21.2', str(y))
